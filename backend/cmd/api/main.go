@@ -17,11 +17,13 @@ import (
 )
 
 func main() {
+	// Carregar configurações
 	cfg, err := config.LoadConfig(".env")
 	if err != nil {
 		log.Fatalf("Erro ao carregar configurações: %v", err)
 	}
 
+	// Inicializar banco de dados
 	db, err := database.NewPostgresDB(cfg.DB)
 	if err != nil {
 		log.Fatalf("Erro ao conectar ao banco de dados: %v", err)
@@ -29,18 +31,31 @@ func main() {
 	defer db.Close()
 	log.Println("Conexão com o banco de dados estabelecida")
 
+	// Repositórios
 	userRepo := repository.NewUserRepository(db)
+	roleRepo := repository.NewRoleRepository(db)
+
+	// Serviços
 	userService := service.NewUserService(userRepo, cfg.JWT.SecretKey, cfg.JWT.ExpirationHours)
+	roleService := service.NewRoleService(roleRepo)
+
+	// Handlers
 	authHandler := handler.NewAuthHandler(userService)
 	userHandler := handler.NewUserHandler(userService)
-	server := api.NewServer(cfg, authHandler, userHandler)
+	adminHandler := handler.NewAdminHandler(userService, roleService)
+	permissionHandler := handler.NewPermissionHandler(roleService)
 
+	// Servidor
+	server := api.NewServer(cfg, authHandler, userHandler, adminHandler, permissionHandler, userRepo)
+
+	// Iniciar servidor em goroutine
 	go func() {
 		if err := server.Run(); err != nil {
 			log.Fatalf("Erro ao iniciar servidor: %v", err)
 		}
 	}()
 
+	// Configurar desligamento gracioso
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit

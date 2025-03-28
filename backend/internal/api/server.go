@@ -5,6 +5,7 @@ import (
 	"app_padrao/internal/api/handler"
 	"app_padrao/internal/api/route"
 	"app_padrao/internal/config"
+	"app_padrao/internal/domain"
 	"context"
 	"log"
 	"net/http"
@@ -14,25 +15,34 @@ import (
 )
 
 type Server struct {
-	router      *gin.Engine
-	httpServer  *http.Server
-	authHandler *handler.AuthHandler
-	userHandler *handler.UserHandler
-	cfg         *config.Config
+	router            *gin.Engine
+	httpServer        *http.Server
+	authHandler       *handler.AuthHandler
+	userHandler       *handler.UserHandler
+	adminHandler      *handler.AdminHandler
+	permissionHandler *handler.PermissionHandler
+	userRepo          domain.UserRepository
+	cfg               *config.Config
 }
 
 func NewServer(
 	cfg *config.Config,
 	authHandler *handler.AuthHandler,
 	userHandler *handler.UserHandler,
+	adminHandler *handler.AdminHandler,
+	permissionHandler *handler.PermissionHandler,
+	userRepo domain.UserRepository,
 ) *Server {
 	router := gin.Default()
 
 	return &Server{
-		router:      router,
-		authHandler: authHandler,
-		userHandler: userHandler,
-		cfg:         cfg,
+		router:            router,
+		authHandler:       authHandler,
+		userHandler:       userHandler,
+		adminHandler:      adminHandler,
+		permissionHandler: permissionHandler,
+		userRepo:          userRepo,
+		cfg:               cfg,
 	}
 }
 
@@ -41,6 +51,9 @@ func (s *Server) Run() error {
 		s.router,
 		s.authHandler,
 		s.userHandler,
+		s.adminHandler,
+		s.permissionHandler,
+		s.userRepo,
 		s.cfg.JWT.SecretKey,
 	)
 

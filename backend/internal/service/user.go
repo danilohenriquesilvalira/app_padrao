@@ -38,6 +38,21 @@ func (s *UserService) Register(user domain.User) (int, error) {
 	}
 
 	user.Password = string(hashedPassword)
+
+	// Valores padrão - apenas se não fornecidos
+	if user.Role == "" {
+		user.Role = "user"
+	}
+
+	// Não sobrescrever isActive se já tiver um valor definido
+	if user.Role == "admin" {
+		// Garantir que admins sempre estejam ativos por segurança
+		user.IsActive = true
+	} else if !user.IsActive {
+		// Definir como true se não estiver explicitamente definido como false
+		user.IsActive = true
+	}
+
 	return s.repo.Create(user)
 }
 
@@ -57,6 +72,11 @@ func (s *UserService) Login(email, password string) (string, domain.User, error)
 		return "", domain.User{}, domain.ErrInvalidCredentials
 	}
 
+	// Verificar se usuário está ativo
+	if !user.IsActive {
+		return "", domain.User{}, domain.ErrInvalidCredentials
+	}
+
 	// Gerar token JWT
 	token, err := jwt.GenerateToken(user.ID, s.jwtSecretKey, s.expirationHrs)
 	if err != nil {
@@ -67,4 +87,20 @@ func (s *UserService) Login(email, password string) (string, domain.User, error)
 	user.Password = ""
 
 	return token, user, nil
+}
+
+func (s *UserService) Update(user domain.User) error {
+	return s.repo.Update(user)
+}
+
+func (s *UserService) Delete(id int) error {
+	return s.repo.Delete(id)
+}
+
+func (s *UserService) List(page, pageSize int) ([]domain.User, int, error) {
+	return s.repo.List(page, pageSize)
+}
+
+func (s *UserService) HasPermission(userID int, permissionCode string) (bool, error) {
+	return s.repo.HasPermission(userID, permissionCode)
 }

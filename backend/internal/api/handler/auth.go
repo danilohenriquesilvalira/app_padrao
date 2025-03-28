@@ -22,6 +22,10 @@ type registerRequest struct {
 	Username string `json:"username" binding:"required"`
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required,min=6"`
+	Role     string `json:"role"`
+	FullName string `json:"full_name"`
+	Phone    string `json:"phone"`
+	IsActive bool   `json:"is_active"`
 }
 
 type loginRequest struct {
@@ -33,6 +37,10 @@ type userResponse struct {
 	ID       int    `json:"id"`
 	Username string `json:"username"`
 	Email    string `json:"email"`
+	Role     string `json:"role"`
+	IsActive bool   `json:"is_active"`
+	FullName string `json:"full_name"`
+	Phone    string `json:"phone"`
 }
 
 func (h *AuthHandler) Register(c *gin.Context) {
@@ -46,6 +54,10 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		Username: req.Username,
 		Email:    req.Email,
 		Password: req.Password,
+		Role:     req.Role,
+		IsActive: req.IsActive,
+		FullName: req.FullName,
+		Phone:    req.Phone,
 	}
 
 	id, err := h.userService.Register(user)
@@ -91,6 +103,10 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			ID:       user.ID,
 			Username: user.Username,
 			Email:    user.Email,
+			Role:     user.Role,
+			IsActive: user.IsActive,
+			FullName: user.FullName,
+			Phone:    user.Phone,
 		},
 	})
 }
