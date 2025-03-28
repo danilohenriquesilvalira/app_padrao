@@ -148,17 +148,32 @@ export default function UserList({ navigation }: any) {
       
       const response = await api.get(`/api/admin/users?page=${p}&pageSize=10`);
       
+      // Garantir que temos um array válido de usuários, mesmo se a resposta for nula
+      const responseUsers = Array.isArray(response.data?.users) ? response.data.users : [];
+      const responseTotal = typeof response.data?.total === 'number' ? response.data.total : 0;
+      
       if (shouldRefresh || p === 1) {
-        setUsers(response.data.users);
+        setUsers(responseUsers);
       } else {
-        setUsers([...users, ...response.data.users]);
+        setUsers(prevUsers => [...prevUsers, ...responseUsers]);
       }
       
-      setTotal(response.data.total);
+      setTotal(responseTotal);
       setPage(p);
     } catch (error) {
       console.error('Erro ao carregar usuários:', error);
-      Alert.alert('Erro', 'Falha ao carregar usuários. Tente novamente mais tarde.');
+      
+      // Em caso de erro, garantir que temos pelo menos um array vazio
+      if (p === 1) {
+        setUsers([]);
+        setTotal(0);
+      }
+      
+      Alert.alert(
+        'Erro', 
+        'Falha ao carregar usuários. Tente novamente mais tarde.',
+        [{ text: 'OK' }]
+      );
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -188,12 +203,16 @@ export default function UserList({ navigation }: any) {
     try {
       setDeleteConfirmModal(false);
       setLoading(true);
+      
       await api.delete(`/api/admin/users/${selectedUser.id}`);
       
-      // Remove user from state
-      setUsers(users.filter(user => user.id !== selectedUser.id));
+      // Atualizar o estado local sem fazer uma nova requisição
+      // Usar o callback pattern para evitar problemas com estado desatualizado
+      setUsers(prevUsers => prevUsers.filter(user => user.id !== selectedUser.id));
+      setFilteredUsers(prevUsers => prevUsers.filter(user => user.id !== selectedUser.id));
+      setTotal(prevTotal => Math.max(0, prevTotal - 1));
       
-      // Show success message
+      // Mostrar mensagem de sucesso
       Alert.alert('Sucesso', 'Usuário excluído com sucesso');
     } catch (error) {
       console.error('Erro ao excluir usuário:', error);
@@ -467,7 +486,7 @@ export default function UserList({ navigation }: any) {
       <View style={styles.emptyContainer}>
         <EmptyListSvg 
           width={200} 
-          height={200} 
+          height={200}
           primaryColor={theme.primary}
           secondaryColor="#FF9800"
         />

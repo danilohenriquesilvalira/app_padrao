@@ -20,7 +20,7 @@ func SetupRoutes(
 	userRepo domain.UserRepository,
 	jwtSecret string,
 ) {
-	// CORS
+	// CORS - Configuração melhorada
 	router.Use(corsMiddleware())
 
 	// Criar diretório de uploads se não existir
@@ -28,6 +28,11 @@ func SetupRoutes(
 
 	// Servir arquivos estáticos
 	router.Static("/avatars", "./uploads/avatars")
+
+	// Rotas para verificação de saúde da API
+	router.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
 
 	// Autenticação
 	router.POST("/register", authHandler.Register)
@@ -47,7 +52,7 @@ func SetupRoutes(
 		// Temas
 		api.GET("/themes", profileHandler.GetThemes)
 
-		// Permissões
+		// Permissões - Modifique para retornar sempre resposta válida mesmo que vazia
 		api.GET("/permissions", permissionHandler.GetUserPermissions)
 
 		// Admin - temporariamente sem middleware de permissão para teste
@@ -69,10 +74,14 @@ func SetupRoutes(
 
 func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Configuração CORS mais abrangente
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, PATCH")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Origin, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
 
+		// Resposta imediata para requisições OPTIONS (preflight)
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return

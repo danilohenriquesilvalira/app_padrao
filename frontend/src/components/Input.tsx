@@ -1,5 +1,5 @@
 // src/components/Input.tsx
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   TextInput, 
   StyleSheet, 
@@ -7,9 +7,7 @@ import {
   View, 
   Text, 
   TouchableOpacity,
-  Animated,
   Platform,
-  Keyboard
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
@@ -42,217 +40,94 @@ export default function Input({
   ...rest 
 }: InputProps) {
   const { theme, isDarkMode } = useTheme();
-  const [isFocused, setIsFocused] = useState(false);
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
-  const [isFilled, setIsFilled] = useState(false);
-  
-  // Use refs to prevent losing focus
   const inputRef = useRef<TextInput>(null);
-  
-  // Animation values
-  const labelAnim = useRef(new Animated.Value(0)).current;
-  const focusAnim = useRef(new Animated.Value(0)).current;
-  
-  // Check if input has content immediately and when value changes
-  useEffect(() => {
-    setIsFilled(!!rest.value);
-  }, [rest.value]);
-
-  // Handle focus animations with proper timing
-  useEffect(() => {
-    // Use requestAnimationFrame to ensure animations don't interfere with focus
-    requestAnimationFrame(() => {
-      Animated.timing(focusAnim, {
-        toValue: isFocused || isFilled ? 1 : 0,
-        duration: 150,
-        useNativeDriver: false,
-      }).start();
-      
-      if (label) {
-        Animated.timing(labelAnim, {
-          toValue: isFocused || isFilled ? 1 : 0,
-          duration: 150,
-          useNativeDriver: false,
-        }).start();
-      }
-    });
-  }, [isFocused, isFilled]);
-
-  const handleFocus = (e: any) => {
-    setIsFocused(true);
-    if (rest.onFocus) {
-      rest.onFocus(e);
-    }
-  };
-
-  const handleBlur = (e: any) => {
-    setIsFocused(false);
-    if (rest.onBlur) {
-      rest.onBlur(e);
-    }
-  };
 
   const togglePasswordVisibility = () => {
     setIsPasswordVisible(!isPasswordVisible);
-    // Importante: quando alternamos a visibilidade da senha, precisamos manter o foco
-    inputRef.current?.focus();
   };
 
-  // Get border colors for different states
+  // Get colors
   const getBorderColor = () => {
     if (error) return theme.error;
     if (success) return theme.success;
-    if (isFocused) return theme.primary;
     return theme.border;
   };
 
-  // Get background color
   const getBackgroundColor = () => {
-    if (isDarkMode) {
-      return isFocused ? theme.surfaceVariant : theme.surface;
-    }
-    return isFocused ? '#F9FAFB' : '#FFFFFF';
+    return isDarkMode ? theme.surface : '#FFFFFF';
   };
 
-  // Get icon color
   const getIconColor = () => {
     if (error) return theme.error;
     if (success) return theme.success;
-    if (isFocused) return theme.primary;
     return theme.placeholder;
   };
 
-  // Get animated label style
-  const getLabelStyle = () => {
-    if (!label) return {};
-    
-    const top = labelAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['50%', '-25%'],
-    });
-    
-    const fontSize = labelAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: [14, 12],
-    });
-    
-    const color = labelAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: [theme.placeholder, error ? theme.error : success ? theme.success : theme.primary],
-    });
-    
-    return {
-      top,
-      fontSize,
-      color,
-      backgroundColor: theme.background,
-      paddingHorizontal: 4,
-    };
-  };
-
-  // Criar um wrapper TouchableOpacity para garantir que o foco funcione corretamente
-  const handlePressWrapper = () => {
-    inputRef.current?.focus();
-  };
-
   return (
-    <View style={[
-      styles.container,
-      containerStyle
-    ]}>
+    <View style={[styles.container, containerStyle]}>
       {label && (
-        <Animated.Text 
-          style={[
-            styles.label,
-            getLabelStyle()
-          ]}
-        >
+        <Text style={[styles.label, { color: theme.text }]}>
           {label} {required && <Text style={{ color: theme.error }}>*</Text>}
-        </Animated.Text>
+        </Text>
       )}
       
-      <TouchableOpacity 
-        activeOpacity={1} 
-        onPress={handlePressWrapper}
-        style={{ width: '100%' }}
-      >
-        <View style={[
-          styles.inputContainer, 
-          { 
-            borderColor: getBorderColor(),
-            backgroundColor: getBackgroundColor(),
-          },
-          error ? styles.inputError : null,
-          success ? styles.inputSuccess : null,
-          rest.multiline ? styles.multiline : null,
-          // Apply elevated styles if focused
-          isFocused && Platform.OS === 'ios' && {
-            shadowColor: error ? theme.error : success ? theme.success : theme.primary,
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.1,
-            shadowRadius: 4,
-          },
-          isFocused && Platform.OS === 'android' && {
-            elevation: 2,
-          },
-          style
-        ]}>
-          {leftComponent && (
-            <View style={styles.leftComponent}>
-              {leftComponent}
-            </View>
-          )}
-          
-          {icon && (
-            <Feather 
-              name={icon} 
-              size={20} 
-              color={getIconColor()} 
-              style={styles.icon} 
-            />
-          )}
-          
-          <TextInput 
-            {...rest} 
-            ref={inputRef}
-            style={[
-              styles.input, 
-              { 
-                color: theme.text,
-                flex: 1,
-              },
-              icon || leftComponent ? styles.inputWithIcon : null
-            ]} 
-            placeholderTextColor={theme.placeholder}
-            secureTextEntry={secureTextEntry && !isPasswordVisible}
-            onFocus={handleFocus}
-            onBlur={handleBlur}
-            // Adicione estas propriedades para garantir que o teclado funcione corretamente
-            blurOnSubmit={false}
-            caretHidden={false}
+      <View style={[
+        styles.inputContainer, 
+        { 
+          borderColor: getBorderColor(),
+          backgroundColor: getBackgroundColor(),
+        },
+        error ? styles.inputError : null,
+        rest.multiline ? styles.multiline : null,
+        style
+      ]}>
+        {leftComponent && <View style={styles.leftComponent}>{leftComponent}</View>}
+        
+        {icon && (
+          <Feather 
+            name={icon} 
+            size={20} 
+            color={getIconColor()} 
+            style={styles.icon} 
           />
+        )}
+        
+        <TextInput 
+          {...rest} 
+          ref={inputRef}
+          style={[
+            styles.input, 
+            { 
+              color: theme.text,
+              flex: 1,
+            },
+            icon || leftComponent ? styles.inputWithIcon : null
+          ]} 
+          placeholderTextColor={theme.placeholder}
+          secureTextEntry={secureTextEntry && !isPasswordVisible}
+          // Remova qualquer manipulação de foco/blur para simplificar
+        />
 
-          {secureTextEntry && (
-            <TouchableOpacity onPress={togglePasswordVisibility} style={styles.passwordToggle}>
-              <Feather 
-                name={isPasswordVisible ? 'eye-off' : 'eye'} 
-                size={20} 
-                color={theme.placeholder} 
-              />
-            </TouchableOpacity>
-          )}
-          
-          {rightComponent && (
-            <View style={styles.rightComponent}>
-              {rightComponent}
-            </View>
-          )}
-          
-          {success && !rightComponent && !secureTextEntry && (
-            <Feather name="check-circle" size={20} color={theme.success} style={styles.successIcon} />
-          )}
-        </View>
-      </TouchableOpacity>
+        {secureTextEntry && (
+          <TouchableOpacity 
+            onPress={togglePasswordVisibility} 
+            style={styles.passwordToggle}
+          >
+            <Feather 
+              name={isPasswordVisible ? 'eye-off' : 'eye'} 
+              size={20} 
+              color={theme.placeholder} 
+            />
+          </TouchableOpacity>
+        )}
+        
+        {rightComponent && <View style={styles.rightComponent}>{rightComponent}</View>}
+        
+        {success && !rightComponent && !secureTextEntry && (
+          <Feather name="check-circle" size={20} color={theme.success} style={styles.successIcon} />
+        )}
+      </View>
       
       {error && (
         <View style={styles.errorContainer}>
@@ -276,11 +151,9 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   label: {
-    position: 'absolute',
-    left: 12,
-    zIndex: 1,
-    paddingHorizontal: 4,
+    marginBottom: 8,
     fontWeight: '500',
+    fontSize: 14,
   },
   inputContainer: {
     flexDirection: 'row',
@@ -288,7 +161,6 @@ const styles = StyleSheet.create({
     minHeight: 50,
     borderWidth: 1,
     borderRadius: 8,
-    position: 'relative',
     paddingHorizontal: 12,
   },
   multiline: {
@@ -301,18 +173,13 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   input: {
-    height: '100%',
-    padding: 10,
-    paddingHorizontal: 0,
+    height: 50,
     fontSize: 16,
   },
   inputWithIcon: {
     paddingLeft: 0,
   },
   inputError: {
-    borderWidth: 1,
-  },
-  inputSuccess: {
     borderWidth: 1,
   },
   errorContainer: {

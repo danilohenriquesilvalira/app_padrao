@@ -284,10 +284,15 @@ func (r *UserRepository) List(page, pageSize int) ([]domain.User, int, error) {
 	err := r.db.QueryRow(countQuery).Scan(&total)
 	if err != nil {
 		log.Printf("Erro ao contar usuários: %v", err)
-		return nil, 0, err
+		return []domain.User{}, 0, err // Retornar array vazio em vez de nil
 	}
 
 	log.Printf("Total de usuários: %d", total)
+
+	// Se não houver usuários, retornar um array vazio imediatamente
+	if total == 0 {
+		return []domain.User{}, 0, nil
+	}
 
 	// Use COALESCE para garantir que valores NULL sejam convertidos para string vazia
 	query := `
@@ -309,11 +314,13 @@ func (r *UserRepository) List(page, pageSize int) ([]domain.User, int, error) {
 	rows, err := r.db.Query(query, pageSize, offset)
 	if err != nil {
 		log.Printf("Erro na consulta SQL: %v", err)
-		return nil, 0, err
+		return []domain.User{}, 0, err // Retornar array vazio em vez de nil
 	}
 	defer rows.Close()
 
-	var users []domain.User
+	// Inicializar o slice com um array vazio, não nil
+	users := []domain.User{}
+
 	for rows.Next() {
 		var user domain.User
 		err := rows.Scan(
@@ -327,14 +334,14 @@ func (r *UserRepository) List(page, pageSize int) ([]domain.User, int, error) {
 		)
 		if err != nil {
 			log.Printf("Erro ao escanear linha: %v", err)
-			return nil, 0, err
+			return []domain.User{}, 0, err // Retornar array vazio em vez de nil
 		}
 		users = append(users, user)
 	}
 
 	if err = rows.Err(); err != nil {
 		log.Printf("Erro após iteração de linhas: %v", err)
-		return nil, 0, err
+		return []domain.User{}, 0, err // Retornar array vazio em vez de nil
 	}
 
 	log.Printf("Usuários encontrados: %d", len(users))
