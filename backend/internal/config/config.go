@@ -39,13 +39,13 @@ func LoadConfig(path string) (*Config, error) {
 		DB: database.Config{
 			Host:     getEnv("DB_HOST", "localhost"),
 			Port:     getEnv("DB_PORT", "5432"),
-			User:     "danilo",
-			Password: "Danilo@34333528",
+			User:     getEnv("DB_USER", "danilo"),
+			Password: getEnv("DB_PASSWORD", "Danilo@34333528"),
 			DBName:   getEnv("DB_NAME", "app_padrao"),
 			SSLMode:  getEnv("DB_SSLMODE", "disable"),
 		},
 		JWT: JWTConfig{
-			SecretKey:       getEnv("JWT_SECRET", "seu_segredo_super_seguro"),
+			SecretKey:       getEnv("JWT_SECRET", "chave_super_segura_app_padrao"),
 			ExpirationHours: expirationHours,
 		},
 	}, nil

@@ -3,6 +3,7 @@ package handler
 
 import (
 	"app_padrao/internal/domain"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -25,8 +26,11 @@ func (h *AdminHandler) ListUsers(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "10"))
 
+	log.Printf("Listando usuários: page=%d, pageSize=%d", page, pageSize)
+
 	users, total, err := h.userService.List(page, pageSize)
 	if err != nil {
+		log.Printf("Erro ao listar usuários: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

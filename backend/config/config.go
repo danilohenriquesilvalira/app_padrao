@@ -39,8 +39,8 @@ func LoadConfig(path string) (*Config, error) {
 		DB: database.Config{
 			Host:     getEnv("DB_HOST", "localhost"),
 			Port:     getEnv("DB_PORT", "5432"),
-			User:     "danilo",
-			Password: "Danilo@34333528",
+			User:     getEnv("DB_USER", "postgres"),
+			Password: getEnv("DB_PASSWORD", ""),
 			DBName:   getEnv("DB_NAME", "app_padrao"),
 			SSLMode:  getEnv("DB_SSLMODE", "disable"),
 		},
