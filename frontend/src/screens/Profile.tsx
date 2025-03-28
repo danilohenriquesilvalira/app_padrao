@@ -26,30 +26,20 @@ import Button from '../components/Button';
 interface Profile {
   bio: string;
   avatar_url: string | null;
-  theme: string;
   font_size: string;
   language: string;
   department?: string;
 }
 
-const windowWidth = Dimensions.get('window').width;
-
 export default function Profile() {
   const { user, updateProfile } = useAuth();
-  const {
-    theme,
-    currentThemeName,
-    availableThemes,
-    changeTheme,
-    isDarkMode
-  } = useTheme();
+  const { theme, isDarkMode } = useTheme();
   const navigation = useNavigation();
   const [loading, setLoading] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
   const [profile, setProfile] = useState<Profile>({
     bio: '',
     avatar_url: null,
-    theme: currentThemeName,
     font_size: 'medium',
     language: 'pt_BR'
   });
@@ -94,7 +84,6 @@ export default function Profile() {
         setProfile({
           bio: response.data.profile.bio || '',
           avatar_url: response.data.profile.avatar_url || null,
-          theme: response.data.profile.theme || currentThemeName,
           font_size: response.data.profile.font_size || 'medium',
           language: response.data.profile.language || 'pt_BR',
           department: response.data.profile.department || ''
@@ -127,7 +116,6 @@ export default function Profile() {
       // Atualizar perfil estendido
       await api.put('/api/profile', {
         bio: form.bio,
-        theme: profile.theme || currentThemeName,
         font_size: profile.font_size || 'medium',
         language: profile.language || 'pt_BR'
       });
@@ -190,20 +178,7 @@ export default function Profile() {
     }
   };
 
-  const handleChangeTheme = async (themeName: string) => {
-    try {
-      setProfile(prev => ({
-        ...prev,
-        theme: themeName
-      }));
-      await changeTheme(themeName);
-    } catch (error) {
-      console.error('Erro ao alterar tema:', error);
-      Alert.alert('Erro', 'Não foi possível alterar o tema');
-    }
-  };
-
-  if (loading && !profile.theme) {
+  if (loading && !profile) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
         <ActivityIndicator size="large" color={theme.primary} />
@@ -360,98 +335,6 @@ export default function Profile() {
           style={styles.bioInput}
           helperText="Uma breve descrição sobre você"
         />
-      </Animated.View>
-
-      {/* Seção de temas com animação */}
-      <Animated.View style={[
-        styles.section, 
-        { 
-          backgroundColor: theme.surface,
-          opacity: contentAnim,
-          transform: [{ translateY: contentAnim.interpolate({
-            inputRange: [0, 1],
-            outputRange: [60, 0]
-          })}]
-        }
-      ]}>
-        <View style={styles.sectionHeader}>
-          <Feather name="droplet" size={20} color={theme.primary} />
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>
-            Temas
-          </Text>
-        </View>
-        <Text style={[styles.themesDescription, { color: isDarkMode ? '#BBB' : '#666' }]}>
-          Escolha um tema para personalizar a aparência do aplicativo
-        </Text>
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.themeScroll}
-        >
-          {availableThemes.map((themeOption) => (
-            <TouchableOpacity
-              key={`theme-${themeOption.id}`} // Usando uma chave única com prefixo
-              style={[
-                styles.themeCard,
-                {
-                  backgroundColor: themeOption.background_color,
-                  borderColor:
-                    currentThemeName === themeOption.name ? themeOption.accent_color : 'transparent',
-                }
-              ]}
-              onPress={() => handleChangeTheme(themeOption.name)}
-            >
-              <View style={styles.themePreviewContainer}>
-                {/* Cabeçalho simulado */}
-                <View style={[styles.previewHeader, { backgroundColor: themeOption.primary_color }]}>
-                  <View style={styles.previewStatusBar} />
-                </View>
-                
-                {/* Conteúdo simulado */}
-                <View style={styles.previewContent}>
-                  <View style={[styles.previewCard, { 
-                    backgroundColor: themeOption.name === 'dark' ? '#1E1E1E' : '#FFFFFF',
-                    shadowColor: themeOption.text_color
-                  }]}>
-                    <View style={styles.previewCardContent}>
-                      <View style={[styles.previewText, { backgroundColor: themeOption.secondary_color }]} />
-                      <View style={[styles.previewText, { width: '70%', backgroundColor: themeOption.secondary_color }]} />
-                    </View>
-                  </View>
-                  
-                  <View style={[styles.previewButton, { backgroundColor: themeOption.primary_color }]} />
-                </View>
-              </View>
-              
-              <View style={[
-                styles.themeInfoContainer, 
-                { backgroundColor: themeOption.name === 'dark' || themeOption.name === 'midnight' || themeOption.name === 'ocean' ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.85)' }
-              ]}>
-                <Text style={[
-                  styles.themeName, 
-                  { 
-                    color: themeOption.name === 'dark' || themeOption.name === 'midnight' || themeOption.name === 'ocean' ? '#fff' : themeOption.text_color 
-                  }
-                ]}>
-                  {themeOption.description || themeOption.name.charAt(0).toUpperCase() + themeOption.name.slice(1)}
-                </Text>
-                
-                {currentThemeName === themeOption.name && (
-                  <View style={[styles.selectedBadge, { backgroundColor: themeOption.accent_color }]}>
-                    <Feather name="check" size={16} color="#FFF" />
-                  </View>
-                )}
-              </View>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-        
-        <View style={styles.hintContainer}>
-          <Feather name="info" size={14} color={theme.primary} style={styles.hintIcon} />
-          <Text style={[styles.hintText, { color: isDarkMode ? '#BBB' : '#666' }]}>
-            Deslize para ver mais temas
-          </Text>
-        </View>
       </Animated.View>
       
       {/* Seção de preferências com animação */}
@@ -647,107 +530,6 @@ const styles = StyleSheet.create({
     height: 100,
     textAlignVertical: 'top',
     paddingTop: 10,
-  },
-  themesDescription: {
-    fontSize: 14,
-    marginBottom: 15,
-  },
-  // Novos estilos para o carrossel de temas
-  themeScroll: {
-    paddingHorizontal: 5,
-    paddingBottom: 10,
-  },
-  themeCard: {
-    width: 160,
-    height: 200,
-    marginRight: 15,
-    borderRadius: 16,
-    overflow: 'hidden',
-    borderWidth: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  themePreviewContainer: {
-    flex: 1,
-    overflow: 'hidden',
-    padding: 10,
-  },
-  previewHeader: {
-    height: 40,
-    borderRadius: 8,
-    padding: 8,
-    marginBottom: 10,
-  },
-  previewStatusBar: {
-    height: 4,
-    width: '70%',
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    borderRadius: 2,
-  },
-  previewContent: {
-    flex: 1,
-    justifyContent: 'space-between',
-  },
-  previewCard: {
-    height: 60,
-    borderRadius: 8,
-    padding: 8,
-    marginBottom: 8,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  previewCardContent: {
-    flexDirection: 'column',
-    justifyContent: 'space-between',
-    height: '100%',
-  },
-  previewText: {
-    height: 6,
-    width: '90%',
-    backgroundColor: 'rgba(0,0,0,0.1)',
-    borderRadius: 3,
-  },
-  previewButton: {
-    height: 24,
-    width: '50%',
-    borderRadius: 12,
-    alignSelf: 'center',
-  },
-  themeInfoContainer: {
-    padding: 12,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.05)',
-  },
-  themeName: {
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  selectedBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  hintContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 5,
-  },
-  hintIcon: {
-    marginRight: 6,
-  },
-  hintText: {
-    fontSize: 12,
   },
   preferencesButton: {
     flexDirection: 'row',

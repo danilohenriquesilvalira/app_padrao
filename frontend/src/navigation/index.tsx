@@ -206,19 +206,6 @@ export default function Navigation() {
     },
   };
 
-  const customDarkTheme = {
-    ...DarkTheme,
-    colors: {
-      ...DarkTheme.colors,
-      primary: theme.primary,
-      background: theme.background,
-      card: theme.card,
-      text: theme.text,
-      border: theme.border,
-      notification: theme.accent,
-    },
-  };
-
   if (loading) {
     return (
       <View style={{ 
@@ -233,7 +220,7 @@ export default function Navigation() {
   }
 
   return (
-    <NavigationContainer theme={isDarkMode ? customDarkTheme : customLightTheme}>
+    <NavigationContainer theme={customLightTheme}>
       <Stack.Navigator 
         screenOptions={{ 
           headerShown: false,

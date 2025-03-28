@@ -34,7 +34,7 @@ type User = {
 };
 
 export default function UserList({ navigation }: any) {
-  const { theme, isDarkMode } = useTheme();
+  const { theme } = useTheme();
   const [users, setUsers] = useState<User[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
@@ -52,29 +52,29 @@ export default function UserList({ navigation }: any) {
   const fadeAnimation = useRef(new Animated.Value(0)).current;
   const searchBarWidth = useRef(new Animated.Value(width - 32)).current;
 
-  // Role colors mapping for badges - Now using theme colors
+  // Role colors mapping for badges - Usando cores mais vibrantes
   const getRoleColor = (role: string) => {
     switch(role) {
       case 'admin':
         return {
-          bg: theme.error,
-          text: '#fff'
+          bg: '#D32F2F',
+          text: '#FFFFFF'
         };
       case 'manager':
         return {
-          bg: theme.warning,
-          text: isDarkMode ? '#000' : '#fff'
+          bg: '#FF9800',
+          text: '#000000'
         };
       case 'editor':
         return {
-          bg: theme.accent,
-          text: isDarkMode ? '#000' : '#fff'
+          bg: '#5C6BC0',
+          text: '#FFFFFF'
         };
       case 'user':
       default:
         return {
-          bg: theme.success,
-          text: '#fff'
+          bg: '#2E7D32',
+          text: '#FFFFFF'
         };
     }
   };
@@ -214,11 +214,17 @@ export default function UserList({ navigation }: any) {
   };
 
   const renderAvatar = (username: string, email: string) => {
-    // Generate unique color based on email
+    // Generate unique color based on email - cores mais vibrantes
     const getColorFromEmail = (email: string) => {
       const colors = [
-        theme.primary, theme.secondary, theme.accent, theme.primaryLight, // Theme colors
-        theme.primaryDark, theme.info, theme.success, theme.warning, // More theme colors
+        '#3F51B5', // Azul índigo
+        '#009688', // Verde teal
+        '#E91E63', // Rosa
+        '#673AB7', // Roxo
+        '#FF5722', // Laranja profundo
+        '#795548', // Marrom
+        '#607D8B', // Azul acinzentado
+        '#9C27B0', // Roxo
       ];
       
       let sum = 0;
@@ -249,8 +255,8 @@ export default function UserList({ navigation }: any) {
     // Get role color
     const roleColor = getRoleColor(item.role);
     
-    // Determine the status color
-    const statusColor = item.isActive ? theme.success : theme.textLight;
+    // Determine the status color - cores mais vibrantes
+    const statusColor = item.isActive ? '#2E7D32' : '#757575';
     
     return (
       <Animated.View
@@ -272,9 +278,10 @@ export default function UserList({ navigation }: any) {
         <View style={[
           styles.userItem, 
           { 
-            backgroundColor: isDarkMode ? theme.surfaceVariant : theme.card,
+            backgroundColor: '#FFFFFF',
             borderLeftColor: roleColor.bg,
-            shadowColor: theme.text,
+            borderColor: '#AAAAAA',
+            borderWidth: 1
           }
         ]}>
           <View style={styles.userMainInfo}>
@@ -282,13 +289,13 @@ export default function UserList({ navigation }: any) {
             
             <View style={styles.userDetails}>
               <View style={styles.userNameRow}>
-                <Text style={[styles.username, { color: theme.text }]}>
+                <Text style={[styles.username, { color: '#000000' }]}>
                   {item.username}
                 </Text>
                 <View style={[styles.statusIndicator, { backgroundColor: statusColor }]} />
               </View>
               
-              <Text style={[styles.email, { color: theme.textSecondary }]}>
+              <Text style={[styles.email, { color: '#333333' }]}>
                 {item.email}
               </Text>
               
@@ -302,17 +309,15 @@ export default function UserList({ navigation }: any) {
                 <View style={[
                   styles.badge, 
                   { 
-                    backgroundColor: item.isActive 
-                      ? `${theme.success}20` 
-                      : `${theme.textLight}20`,
+                    backgroundColor: item.isActive ? 'rgba(46, 125, 50, 0.15)' : 'rgba(117, 117, 117, 0.15)',
                     borderWidth: 1,
-                    borderColor: item.isActive ? theme.success : theme.textLight
+                    borderColor: item.isActive ? '#2E7D32' : '#757575'
                   }
                 ]}>
                   <Text style={[
                     styles.badgeText, 
                     { 
-                      color: item.isActive ? theme.success : theme.textLight,
+                      color: item.isActive ? '#2E7D32' : '#757575',
                       fontWeight: '600'
                     }
                   ]}>
@@ -326,7 +331,7 @@ export default function UserList({ navigation }: any) {
           <View style={styles.actions}>
             <TouchableOpacity 
               onPress={() => navigation.navigate('EditUser', { userId: item.id })}
-              style={[styles.actionButton, styles.editButton, { backgroundColor: theme.primary }]}
+              style={[styles.actionButton, styles.editButton]}
             >
               <Feather name="edit-2" size={16} color="#fff" />
               <Text style={styles.actionText}>Editar</Text>
@@ -334,7 +339,7 @@ export default function UserList({ navigation }: any) {
             
             <TouchableOpacity 
               onPress={() => handleDeleteConfirm(item)}
-              style={[styles.actionButton, styles.deleteButton, { backgroundColor: theme.error }]}
+              style={[styles.actionButton, styles.deleteButton]}
             >
               <Feather name="trash-2" size={16} color="#fff" />
               <Text style={styles.actionText}>Excluir</Text>
@@ -346,35 +351,30 @@ export default function UserList({ navigation }: any) {
   };
 
   const renderHeader = () => (
-    <Animated.View 
-      style={[
-        styles.header,
-        { opacity: fadeAnimation }
-      ]}
-    >
-      <Text style={[styles.title, { color: theme.text }]}>
+    <View style={styles.header}>
+      <Text style={styles.title}>
         Gerenciar Usuários
       </Text>
       
       <View style={styles.searchContainer}>
-        <Animated.View style={[
+        <View style={[
           styles.searchBar, 
           { 
-            backgroundColor: isDarkMode ? theme.surfaceVariant : theme.card,
-            borderColor: theme.border,
-            width: searchBarWidth 
+            backgroundColor: '#FFFFFF',
+            borderColor: '#AAAAAA',
+            width: isSearchFocused ? width - 80 : width - 32,
           }
         ]}>
           <Feather 
             name="search" 
             size={20} 
-            color={theme.placeholder} 
+            color="#666666" 
             style={styles.searchIcon} 
           />
           <TextInput
-            style={[styles.searchInput, { color: theme.text }]}
+            style={styles.searchInput}
             placeholder="Buscar usuários..."
-            placeholderTextColor={theme.placeholder}
+            placeholderTextColor="#999999"
             value={searchQuery}
             onChangeText={setSearchQuery}
             onFocus={() => handleSearchFocus(true)}
@@ -385,10 +385,10 @@ export default function UserList({ navigation }: any) {
               onPress={() => setSearchQuery('')}
               style={styles.clearSearch}
             >
-              <Feather name="x" size={18} color={theme.placeholder} />
+              <Feather name="x" size={18} color="#999999" />
             </TouchableOpacity>
           )}
-        </Animated.View>
+        </View>
         
         {isSearchFocused && (
           <TouchableOpacity 
@@ -411,58 +411,40 @@ export default function UserList({ navigation }: any) {
       />
       
       <View style={styles.statsContainer}>
-        <View style={[
-          styles.statCard, 
-          { 
-            backgroundColor: isDarkMode ? theme.surfaceVariant : theme.card,
-            borderColor: theme.border
-          }
-        ]}>
-          <Feather name="users" size={20} color={theme.primary} />
-          <Text style={[styles.statValue, { color: theme.text }]}>{total}</Text>
-          <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Total</Text>
+        <View style={styles.statCard1}>
+          <Feather name="users" size={20} color="#FFFFFF" />
+          <Text style={styles.statValue}>{total}</Text>
+          <Text style={styles.statLabel}>Total</Text>
         </View>
         
-        <View style={[
-          styles.statCard, 
-          { 
-            backgroundColor: isDarkMode ? theme.surfaceVariant : theme.card,
-            borderColor: theme.border
-          }
-        ]}>
-          <Feather name="user-check" size={20} color={theme.success} />
-          <Text style={[styles.statValue, { color: theme.text }]}>
+        <View style={styles.statCard2}>
+          <Feather name="user-check" size={20} color="#FFFFFF" />
+          <Text style={styles.statValue}>
             {users.filter(u => u.isActive).length}
           </Text>
-          <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Ativos</Text>
+          <Text style={styles.statLabel}>Ativos</Text>
         </View>
         
-        <View style={[
-          styles.statCard, 
-          { 
-            backgroundColor: isDarkMode ? theme.surfaceVariant : theme.card,
-            borderColor: theme.border
-          }
-        ]}>
-          <Feather name="shield" size={20} color={theme.error} />
-          <Text style={[styles.statValue, { color: theme.text }]}>
+        <View style={styles.statCard3}>
+          <Feather name="shield" size={20} color="#FFFFFF" />
+          <Text style={styles.statValue}>
             {users.filter(u => u.role === 'admin').length}
           </Text>
-          <Text style={[styles.statLabel, { color: theme.textSecondary }]}>Admins</Text>
+          <Text style={styles.statLabel}>Admins</Text>
         </View>
       </View>
       
       <View style={styles.listHeader}>
-        <Text style={[styles.listHeaderText, { color: theme.text }]}>
+        <Text style={styles.listHeaderText}>
           {filteredUsers.length} {filteredUsers.length === 1 ? 'usuário' : 'usuários'} encontrados
         </Text>
         {searchQuery && (
-          <Text style={[styles.searchingFor, { color: theme.textSecondary }]}>
+          <Text style={styles.searchingFor}>
             Buscando por: "{searchQuery}"
           </Text>
         )}
       </View>
-    </Animated.View>
+    </View>
   );
 
   const renderFooter = () => {
@@ -471,7 +453,7 @@ export default function UserList({ navigation }: any) {
     return (
       <View style={styles.footerLoader}>
         <ActivityIndicator size="small" color={theme.primary} />
-        <Text style={[styles.footerText, { color: theme.textSecondary }]}>
+        <Text style={styles.footerText}>
           Carregando mais usuários...
         </Text>
       </View>
@@ -487,14 +469,14 @@ export default function UserList({ navigation }: any) {
           width={200} 
           height={200} 
           primaryColor={theme.primary}
-          secondaryColor={theme.secondary}
+          secondaryColor="#FF9800"
         />
         
-        <Text style={[styles.emptyTitle, { color: theme.text }]}>
+        <Text style={styles.emptyTitle}>
           {searchQuery ? 'Nenhum usuário encontrado' : 'Nenhum usuário cadastrado'}
         </Text>
         
-        <Text style={[styles.emptyDescription, { color: theme.textSecondary }]}>
+        <Text style={styles.emptyDescription}>
           {searchQuery
             ? `Não encontramos nenhum usuário para "${searchQuery}"`
             : 'Comece adicionando um novo usuário através do botão acima'
@@ -514,10 +496,10 @@ export default function UserList({ navigation }: any) {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View style={styles.container}>
       <StatusBar 
-        backgroundColor={isDarkMode ? theme.background : theme.primary} 
-        barStyle={isDarkMode ? "light-content" : "light-content"} 
+        backgroundColor="#2563EB" 
+        barStyle="light-content" 
       />
       
       <FlatList
@@ -539,17 +521,9 @@ export default function UserList({ navigation }: any) {
       
       {loading && !refreshing && (
         <View style={styles.loader}>
-          <View style={[
-            styles.loaderContainer, 
-            { 
-              backgroundColor: isDarkMode 
-                ? `${theme.background}E6` // Hexadecimal for 90% opacity
-                : `${theme.card}E6`,
-              borderColor: theme.border
-            }
-          ]}>
-            <ActivityIndicator size="large" color={theme.primary} />
-            <Text style={[styles.loaderText, { color: theme.text }]}>
+          <View style={styles.loaderContainer}>
+            <ActivityIndicator size="large" color="#2563EB" />
+            <Text style={styles.loaderText}>
               Carregando usuários...
             </Text>
           </View>
@@ -564,35 +538,29 @@ export default function UserList({ navigation }: any) {
         onRequestClose={() => setDeleteConfirmModal(false)}
       >
         <View style={styles.modalContainer}>
-          <View style={[
-            styles.modalContent, 
-            { 
-              backgroundColor: isDarkMode ? theme.surface : theme.card,
-              borderColor: theme.border
-            }
-          ]}>
+          <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Feather name="alert-triangle" size={28} color={theme.error} />
-              <Text style={[styles.modalTitle, { color: theme.text }]}>
+              <Feather name="alert-triangle" size={28} color="#F44336" />
+              <Text style={styles.modalTitle}>
                 Confirmar Exclusão
               </Text>
             </View>
             
-            <Text style={[styles.modalMessage, { color: theme.textSecondary }]}>
+            <Text style={styles.modalMessage}>
               Tem certeza que deseja excluir o usuário{' '}
-              <Text style={{ fontWeight: 'bold', color: theme.text }}>
+              <Text style={styles.modalHighlight}>
                 {selectedUser?.username}
               </Text>?
               Esta ação não pode ser desfeita.
             </Text>
             
-            <View style={[styles.userPreview, { backgroundColor: theme.surfaceVariant }]}>
+            <View style={styles.userPreview}>
               {selectedUser && renderAvatar(selectedUser.username, selectedUser.email)}
               <View style={styles.userPreviewInfo}>
-                <Text style={[styles.previewUsername, { color: theme.text }]}>
+                <Text style={styles.previewUsername}>
                   {selectedUser?.username}
                 </Text>
-                <Text style={[styles.previewEmail, { color: theme.textSecondary }]}>
+                <Text style={styles.previewEmail}>
                   {selectedUser?.email}
                 </Text>
               </View>
@@ -621,6 +589,7 @@ export default function UserList({ navigation }: any) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#F5F5F5',
   },
   list: {
     padding: 16,
@@ -637,6 +606,7 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     marginBottom: 16,
+    color: '#000000',
   },
   userItemContainer: {
     marginBottom: 12,
@@ -756,6 +726,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: '100%',
     fontSize: 16,
+    color: '#000000',
   },
   clearSearch: {
     padding: 8,
@@ -769,7 +740,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginVertical: 16,
   },
-  statCard: {
+  statCard1: {
     flex: 1,
     borderRadius: 12,
     padding: 12,
@@ -777,20 +748,57 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginHorizontal: 4,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,
+    backgroundColor: '#2196F3',
+    borderColor: '#1976D2',
+    borderWidth: 1,
+  },
+  statCard2: {
+    flex: 1,
+    borderRadius: 12,
+    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,
+    backgroundColor: '#4CAF50',
+    borderColor: '#388E3C',
+    borderWidth: 1,
+  },
+  statCard3: {
+    flex: 1,
+    borderRadius: 12,
+    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,
+    backgroundColor: '#F44336',
+    borderColor: '#D32F2F',
     borderWidth: 1,
   },
   statValue: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
     marginTop: 4,
+    color: '#FFFFFF',
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: 13,
     marginTop: 2,
+    fontWeight: '500',
+    color: '#FFFFFF',
   },
   listHeader: {
     marginTop: 8,
@@ -799,26 +807,32 @@ const styles = StyleSheet.create({
   listHeaderText: {
     fontSize: 15,
     fontWeight: '500',
+    color: '#000000',
   },
   searchingFor: {
     fontSize: 13,
     marginTop: 4,
+    color: '#000000',
   },
   loader: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
   },
   loaderContainer: {
     padding: 20,
     borderRadius: 12,
     alignItems: 'center',
     borderWidth: 1,
+    backgroundColor: '#FFFFFF',
+    borderColor: '#AAAAAA',
   },
   loaderText: {
     marginTop: 12,
     fontSize: 14,
+    color: '#000000',
   },
   footerLoader: {
     padding: 16,
@@ -829,6 +843,7 @@ const styles = StyleSheet.create({
   footerText: {
     marginLeft: 8,
     fontSize: 14,
+    color: '#000000',
   },
   emptyContainer: {
     alignItems: 'center',
@@ -839,11 +854,13 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginTop: 16,
     marginBottom: 8,
+    color: '#000000',
   },
   emptyDescription: {
     fontSize: 14,
     marginBottom: 24,
     textAlign: 'center',
+    color: '#333333',
   },
   modalContainer: {
     flex: 1,
@@ -861,6 +878,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
+    backgroundColor: '#FFFFFF',
+    borderColor: '#AAAAAA',
     borderWidth: 1,
   },
   modalHeader: {
@@ -872,11 +891,17 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginLeft: 8,
+    color: '#000000',
   },
   modalMessage: {
     fontSize: 15,
     marginBottom: 16,
     lineHeight: 22,
+    color: '#333333',
+  },
+  modalHighlight: {
+    fontWeight: 'bold',
+    color: '#000000',
   },
   userPreview: {
     flexDirection: 'row',
@@ -884,6 +909,7 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 8,
     marginBottom: 20,
+    backgroundColor: '#F5F5F5',
   },
   userPreviewInfo: {
     marginLeft: 12,
@@ -891,9 +917,11 @@ const styles = StyleSheet.create({
   previewUsername: {
     fontSize: 16,
     fontWeight: '600',
+    color: '#000000',
   },
   previewEmail: {
     fontSize: 14,
+    color: '#333333',
   },
   modalButtons: {
     flexDirection: 'row',

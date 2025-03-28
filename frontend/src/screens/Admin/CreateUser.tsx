@@ -18,7 +18,7 @@ import api from '../../services/api';
 import { useTheme } from '../../contexts/ThemeContext';
 
 export default function CreateUser({ navigation }: any) {
-  const { theme, isDarkMode } = useTheme();
+  const { theme } = useTheme();
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState({
     username: '',
@@ -162,70 +162,45 @@ export default function CreateUser({ navigation }: any) {
     }
   };
 
-  // Get role badge color
+  // Get role badge color - cores mais vibrantes
   const getRoleBadgeColor = (roleName: string) => {
     switch (roleName) {
       case 'admin':
-        return theme.error;
+        return '#D32F2F'; // Vermelho mais vivo
       case 'manager':
-        return theme.warning;
+        return '#FF9800'; // Laranja mais vibrante
       case 'editor':
-        return theme.accent;
+        return '#5C6BC0'; // Índigo vibrante
       default:
-        return theme.success;
+        return '#2E7D32'; // Verde mais vibrante
     }
   };
 
   return (
     <ScrollView 
-      style={[styles.container, { backgroundColor: theme.background }]}
+      style={styles.container}
       contentContainerStyle={styles.contentContainer}
     >
       <StatusBar 
-        backgroundColor={isDarkMode ? theme.background : theme.primary} 
-        barStyle={isDarkMode ? "light-content" : "light-content"} 
+        backgroundColor="#2563EB"
+        barStyle="light-content" 
       />
       
-      <Animated.View 
-        style={[
-          styles.headerCard,
-          { 
-            backgroundColor: isDarkMode ? theme.surface : theme.card,
-            borderColor: theme.border,
-            shadowColor: theme.text,
-            opacity: fadeAnim,
-            transform: [{ translateY: slideAnim }]
-          }
-        ]}
-      >
-        <View style={[
-          styles.headerIcon, 
-          { backgroundColor: `${theme.primary}20` }
-        ]}>
-          <Feather name="user-plus" size={40} color={theme.primary} />
+      <View style={styles.headerCard}>
+        <View style={styles.headerIcon}>
+          <Feather name="user-plus" size={40} color="#2563EB" />
         </View>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>Adicionar Novo Usuário</Text>
-        <Text style={[styles.headerSubtitle, { color: theme.textSecondary }]}>
+        <Text style={styles.headerTitle}>Adicionar Novo Usuário</Text>
+        <Text style={styles.headerSubtitle}>
           Preencha os campos abaixo para criar um novo usuário.
           Os campos marcados com * são obrigatórios.
         </Text>
-      </Animated.View>
+      </View>
       
-      <Animated.View 
-        style={[
-          styles.formCard,
-          { 
-            backgroundColor: isDarkMode ? theme.surface : theme.card,
-            borderColor: theme.border,
-            shadowColor: theme.text,
-            opacity: fadeAnim,
-            transform: [{ translateY: slideAnim }]
-          }
-        ]}
-      >
+      <View style={styles.formCard}>
         <View style={styles.sectionHeader}>
-          <Feather name="user" size={20} color={theme.primary} />
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>
+          <Feather name="user" size={20} color="#2563EB" />
+          <Text style={styles.sectionTitle}>
             Informações Básicas
           </Text>
         </View>
@@ -288,54 +263,37 @@ export default function CreateUser({ navigation }: any) {
           error={validationErrors.phone}
           helperText="Formato: (XX) XXXXX-XXXX"
         />
-      </Animated.View>
+      </View>
       
-      <Animated.View 
-        style={[
-          styles.formCard,
-          { 
-            backgroundColor: isDarkMode ? theme.surface : theme.card,
-            borderColor: theme.border,
-            shadowColor: theme.text,
-            opacity: fadeAnim,
-            transform: [{ translateY: slideAnim }]
-          }
-        ]}
-      >
+      <View style={styles.formCard}>
         <View style={styles.sectionHeader}>
-          <Feather name="settings" size={20} color={theme.primary} />
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>
+          <Feather name="settings" size={20} color="#2563EB" />
+          <Text style={styles.sectionTitle}>
             Configurações de Conta
           </Text>
         </View>
         
-        <Text style={[styles.fieldLabel, { color: theme.text }]}>Função:</Text>
-        <View style={[
-          styles.pickerContainer, 
-          { 
-            backgroundColor: isDarkMode ? theme.surfaceVariant : theme.elevation2,
-            borderColor: theme.border
-          }
-        ]}>
+        <Text style={styles.fieldLabel}>Função:</Text>
+        <View style={styles.pickerContainer}>
           <Picker
             selectedValue={user.role}
             onValueChange={value => setUser({...user, role: value})}
-            style={[styles.picker, { color: theme.text }]}
-            dropdownIconColor={theme.text}
+            style={styles.picker}
+            dropdownIconColor={'#000000'}
           >
             {roles.map(role => (
               <Picker.Item 
                 key={role.id} 
                 label={role.description} 
                 value={role.name}
-                color={isDarkMode ? '#fff' : undefined}
+                color={'#000000'}
               />
             ))}
           </Picker>
         </View>
         
         <View style={styles.roleBadgePreview}>
-          <Text style={[styles.previewLabel, { color: theme.textSecondary }]}>
+          <Text style={styles.previewLabel}>
             Preview do badge:
           </Text>
           <View style={[
@@ -346,16 +304,10 @@ export default function CreateUser({ navigation }: any) {
           </View>
         </View>
         
-        <View style={[
-          styles.switchContainer, 
-          { 
-            backgroundColor: isDarkMode ? theme.surfaceVariant : theme.elevation2,
-            borderColor: theme.border
-          }
-        ]}>
+        <View style={styles.switchContainer}>
           <View>
-            <Text style={[styles.switchLabel, { color: theme.text }]}>Status da conta:</Text>
-            <Text style={[styles.switchDescription, { color: theme.textSecondary }]}>
+            <Text style={styles.switchLabel}>Status da conta:</Text>
+            <Text style={styles.switchDescription}>
               Quando desativada, a conta não poderá fazer login
             </Text>
           </View>
@@ -363,33 +315,25 @@ export default function CreateUser({ navigation }: any) {
             value={user.isActive}
             onValueChange={value => setUser({...user, isActive: value})}
             trackColor={{ 
-              false: isDarkMode ? '#555' : '#d1d1d1', 
-              true: `${theme.primary}80` 
+              false: '#d1d1d1', 
+              true: 'rgba(46, 125, 50, 0.5)' 
             }}
             thumbColor={
               user.isActive 
-                ? theme.primary 
-                : isDarkMode ? '#888' : '#f4f3f4'
+                ? '#2E7D32'
+                : '#f4f3f4'
             }
           />
         </View>
-      </Animated.View>
+      </View>
       
-      <Animated.View 
-        style={[
-          styles.buttonsContainer,
-          {
-            opacity: fadeAnim,
-            transform: [{ translateY: slideAnim }]
-          }
-        ]}
-      >
+      <View style={styles.buttonsContainer}>
         <Button 
           title="Cancelar" 
           variant="outline"
           onPress={() => navigation.goBack()}
           disabled={loading}
-          icon={<Feather name="x" size={18} color={theme.primary} style={{ marginRight: 8 }} />}
+          icon={<Feather name="x" size={18} color="#2563EB" style={{ marginRight: 8 }} />}
         />
         
         <Button 
@@ -398,7 +342,7 @@ export default function CreateUser({ navigation }: any) {
           loading={loading}
           icon={<Feather name="user-plus" size={18} color="#fff" style={{ marginRight: 8 }} />}
         />
-      </Animated.View>
+      </View>
     </ScrollView>
   );
 }
@@ -406,6 +350,7 @@ export default function CreateUser({ navigation }: any) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#F5F5F5',
   },
   contentContainer: {
     padding: 16,
@@ -422,6 +367,8 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
     borderWidth: 1,
+    backgroundColor: '#FFFFFF',
+    borderColor: '#AAAAAA',
   },
   headerIcon: {
     width: 80,
@@ -430,17 +377,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
+    backgroundColor: 'rgba(37, 99, 235, 0.1)',
   },
   headerTitle: {
     fontSize: 22,
     fontWeight: 'bold',
     marginBottom: 8,
     textAlign: 'center',
+    color: '#000000',
   },
   headerSubtitle: {
     fontSize: 14,
     textAlign: 'center',
     paddingHorizontal: 20,
+    color: '#333333',
   },
   formCard: {
     borderRadius: 16,
@@ -452,6 +402,8 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
     borderWidth: 1,
+    backgroundColor: '#FFFFFF',
+    borderColor: '#AAAAAA',
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -462,20 +414,25 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginLeft: 8,
+    color: '#000000',
   },
   fieldLabel: {
     fontSize: 14,
     fontWeight: '500',
     marginBottom: 6,
+    color: '#000000',
   },
   pickerContainer: {
     borderWidth: 1,
     borderRadius: 8,
     marginBottom: 8,
     overflow: 'hidden',
+    backgroundColor: '#F5F5F5',
+    borderColor: '#AAAAAA',
   },
   picker: {
     height: 50,
+    color: '#000000',
   },
   roleBadgePreview: {
     flexDirection: 'row',
@@ -486,6 +443,7 @@ const styles = StyleSheet.create({
   previewLabel: {
     fontSize: 14,
     marginRight: 8,
+    color: '#333333',
   },
   roleBadge: {
     paddingHorizontal: 10,
@@ -505,15 +463,19 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginTop: 8,
     borderWidth: 1,
+    backgroundColor: '#F5F5F5',
+    borderColor: '#AAAAAA',
   },
   switchLabel: {
     fontSize: 14,
     fontWeight: '500',
     marginBottom: 4,
+    color: '#000000',
   },
   switchDescription: {
     fontSize: 12,
     maxWidth: '80%',
+    color: '#333333',
   },
   buttonsContainer: {
     flexDirection: 'row',
