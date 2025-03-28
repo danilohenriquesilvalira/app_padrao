@@ -8,7 +8,11 @@ import {
   Text, 
   Switch,
   Animated,
-  StatusBar
+  StatusBar,
+  TouchableOpacity,
+  Dimensions,
+  KeyboardAvoidingView,
+  Platform
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { Feather } from '@expo/vector-icons';
@@ -17,9 +21,12 @@ import Button from '../../components/Button';
 import api from '../../services/api';
 import { useTheme } from '../../contexts/ThemeContext';
 
+const { width } = Dimensions.get('window');
+
 export default function CreateUser({ navigation }: any) {
-  const { theme } = useTheme();
+  const { theme, isDarkMode } = useTheme();
   const [loading, setLoading] = useState(false);
+  const [formStep, setFormStep] = useState(1); // Track form steps
   const [user, setUser] = useState({
     username: '',
     email: '',
@@ -49,24 +56,51 @@ export default function CreateUser({ navigation }: any) {
   // Animation references
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
+  const slideFormAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     // Start animations
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 500,
+        duration: 600,
         useNativeDriver: true,
       }),
       Animated.timing(slideAnim, {
         toValue: 0,
-        duration: 500,
+        duration: 600,
         useNativeDriver: true,
       })
     ]).start();
     
     loadRoles();
   }, []);
+
+  // Animation for form step transitions
+  useEffect(() => {
+    Animated.sequence([
+      Animated.timing(slideFormAnim, {
+        toValue: -width,
+        duration: 0,
+        useNativeDriver: true,
+      }),
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideFormAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      })
+    ]).start();
+  }, [formStep]);
 
   const loadRoles = async () => {
     try {
@@ -79,70 +113,82 @@ export default function CreateUser({ navigation }: any) {
     }
   };
 
-  const validateFields = () => {
-    // Reset all validation errors
-    setValidationErrors({
+  const validateBasicInfo = () => {
+    let isValid = true;
+    const errors = {
       username: '',
       email: '',
       password: '',
       confirmPassword: '',
       fullName: '',
       phone: ''
-    });
-    
-    let isValid = true;
+    };
     
     // Validate username
     if (!user.username) {
-      setValidationErrors(prev => ({...prev, username: 'Nome de usuário é obrigatório'}));
+      errors.username = 'Nome de usuário é obrigatório';
       isValid = false;
     } else if (user.username.length < 3) {
-      setValidationErrors(prev => ({...prev, username: 'Nome de usuário deve ter pelo menos 3 caracteres'}));
+      errors.username = 'Nome de usuário deve ter pelo menos 3 caracteres';
       isValid = false;
     }
     
     // Validate email
     if (!user.email) {
-      setValidationErrors(prev => ({...prev, email: 'Email é obrigatório'}));
+      errors.email = 'Email é obrigatório';
       isValid = false;
     } else if (!/\S+@\S+\.\S+/.test(user.email)) {
-      setValidationErrors(prev => ({...prev, email: 'Email inválido'}));
+      errors.email = 'Email inválido';
       isValid = false;
     }
     
     // Validate password
     if (!user.password) {
-      setValidationErrors(prev => ({...prev, password: 'Senha é obrigatória'}));
+      errors.password = 'Senha é obrigatória';
       isValid = false;
     } else if (user.password.length < 6) {
-      setValidationErrors(prev => ({...prev, password: 'A senha deve ter pelo menos 6 caracteres'}));
+      errors.password = 'A senha deve ter pelo menos 6 caracteres';
       isValid = false;
     }
     
     // Validate password confirmation
     if (!user.confirmPassword) {
-      setValidationErrors(prev => ({...prev, confirmPassword: 'Confirmação de senha é obrigatória'}));
+      errors.confirmPassword = 'Confirmação de senha é obrigatória';
       isValid = false;
     } else if (user.password !== user.confirmPassword) {
-      setValidationErrors(prev => ({...prev, confirmPassword: 'As senhas não conferem'}));
+      errors.confirmPassword = 'As senhas não conferem';
       isValid = false;
     }
     
-    // Optional: Validate phone if provided
-    if (user.phone && !/^[0-9()-+\s]*$/.test(user.phone)) {
-      setValidationErrors(prev => ({...prev, phone: 'Formato de telefone inválido'}));
-      isValid = false;
-    }
-    
+    setValidationErrors(errors);
     return isValid;
   };
 
-  const handleCreateUser = async () => {
-    // Validate fields before submitting
-    if (!validateFields()) {
-      return;
+  const validateAdditionalInfo = () => {
+    let isValid = true;
+    const errors = {...validationErrors};
+    
+    // Optional: Validate phone if provided
+    if (user.phone && !/^[0-9()-+\s]*$/.test(user.phone)) {
+      errors.phone = 'Formato de telefone inválido';
+      isValid = false;
+    } else {
+      errors.phone = '';
     }
     
+    setValidationErrors(errors);
+    return isValid;
+  };
+
+  const handleNextStep = () => {
+    if (formStep === 1 && validateBasicInfo()) {
+      setFormStep(2);
+    } else if (formStep === 2 && validateAdditionalInfo()) {
+      handleCreateUser();
+    }
+  };
+
+  const handleCreateUser = async () => {
     try {
       setLoading(true);
       // Remove confirmPassword before sending to API
@@ -162,46 +208,147 @@ export default function CreateUser({ navigation }: any) {
     }
   };
 
-  // Get role badge color - cores mais vibrantes
+  // Get role badge color
   const getRoleBadgeColor = (roleName: string) => {
     switch (roleName) {
       case 'admin':
-        return '#D32F2F'; // Vermelho mais vivo
+        return '#D32F2F';
       case 'manager':
-        return '#FF9800'; // Laranja mais vibrante
+        return '#FF9800';
       case 'editor':
-        return '#5C6BC0'; // Índigo vibrante
+        return '#5C6BC0';
       default:
-        return '#2E7D32'; // Verde mais vibrante
+        return '#2E7D32';
     }
   };
 
-  return (
-    <ScrollView 
-      style={styles.container}
-      contentContainerStyle={styles.contentContainer}
-    >
-      <StatusBar 
-        backgroundColor="#2563EB"
-        barStyle="light-content" 
-      />
-      
-      <View style={styles.headerCard}>
-        <View style={styles.headerIcon}>
-          <Feather name="user-plus" size={40} color="#2563EB" />
+  // Calculate password strength
+  const getPasswordStrength = () => {
+    if (!user.password) return 0;
+    
+    let strength = 0;
+    // Length check
+    if (user.password.length >= 8) strength += 25;
+    else if (user.password.length >= 6) strength += 15;
+    
+    // Contains number
+    if (/\d/.test(user.password)) strength += 25;
+    
+    // Contains uppercase
+    if (/[A-Z]/.test(user.password)) strength += 25;
+    
+    // Contains special character
+    if (/[^A-Za-z0-9]/.test(user.password)) strength += 25;
+    
+    return Math.min(100, strength);
+  };
+
+  const getPasswordStrengthLabel = () => {
+    const strength = getPasswordStrength();
+    if (strength >= 80) return { label: 'Forte', color: '#2E7D32' };
+    if (strength >= 50) return { label: 'Média', color: '#FF9800' };
+    return { label: 'Fraca', color: '#D32F2F' };
+  };
+
+  // Password strength indicator
+  const PasswordStrengthIndicator = () => {
+    const strength = getPasswordStrength();
+    const strengthInfo = getPasswordStrengthLabel();
+    
+    return (
+      <View style={styles.passwordStrengthContainer}>
+        <View style={styles.strengthBarContainer}>
+          <View 
+            style={[
+              styles.strengthBar, 
+              { 
+                width: `${strength}%`,
+                backgroundColor: strengthInfo.color 
+              }
+            ]} 
+          />
         </View>
-        <Text style={styles.headerTitle}>Adicionar Novo Usuário</Text>
-        <Text style={styles.headerSubtitle}>
-          Preencha os campos abaixo para criar um novo usuário.
-          Os campos marcados com * são obrigatórios.
+        <Text style={[styles.strengthLabel, { color: strengthInfo.color }]}>
+          {strengthInfo.label}
         </Text>
       </View>
-      
+    );
+  };
+
+  // Step indicators
+  const StepIndicator = () => {
+    return (
+      <View style={styles.stepIndicatorContainer}>
+        <View style={styles.stepLine} />
+        <View style={styles.stepsContainer}>
+          <View 
+            style={[
+              styles.stepCircle, 
+              formStep >= 1 ? styles.activeStep : null
+            ]}
+          >
+            <Text style={[
+              styles.stepNumber,
+              formStep >= 1 ? styles.activeStepText : null
+            ]}>1</Text>
+          </View>
+          <View 
+            style={[
+              styles.stepCircle, 
+              formStep >= 2 ? styles.activeStep : null
+            ]}
+          >
+            <Text style={[
+              styles.stepNumber,
+              formStep >= 2 ? styles.activeStepText : null
+            ]}>2</Text>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  // Custom Role Picker component to fix touch issues
+  const RolePicker = () => {
+    return (
+      <View style={[
+        styles.pickerContainer,
+        { 
+          borderColor: isDarkMode ? theme.border : '#CCCCCC',
+          backgroundColor: isDarkMode ? theme.surfaceVariant : '#F5F5F5',
+        }
+      ]}>
+        <Picker
+          selectedValue={user.role}
+          onValueChange={value => setUser({...user, role: value})}
+          style={[
+            styles.picker,
+            { color: isDarkMode ? theme.text : '#000000' }
+          ]}
+          dropdownIconColor={isDarkMode ? theme.text : '#000000'}
+          mode="dropdown"
+        >
+          {roles.map(role => (
+            <Picker.Item 
+              key={role.id} 
+              label={role.description} 
+              value={role.name}
+              color={isDarkMode ? '#fff' : '#000'}
+            />
+          ))}
+        </Picker>
+      </View>
+    );
+  };
+
+  // Render first step form
+  const renderBasicInfoForm = () => {
+    return (
       <View style={styles.formCard}>
         <View style={styles.sectionHeader}>
-          <Feather name="user" size={20} color="#2563EB" />
+          <Feather name="user" size={20} color={theme.primary} />
           <Text style={styles.sectionTitle}>
-            Informações Básicas
+            Informações de Conta
           </Text>
         </View>
         
@@ -212,6 +359,7 @@ export default function CreateUser({ navigation }: any) {
           onChangeText={text => setUser({...user, username: text})}
           error={validationErrors.username}
           required
+          autoCapitalize="none"
         />
         
         <Input
@@ -222,6 +370,7 @@ export default function CreateUser({ navigation }: any) {
           onChangeText={text => setUser({...user, email: text})}
           error={validationErrors.email}
           required
+          autoCapitalize="none"
         />
         
         <Input
@@ -235,6 +384,8 @@ export default function CreateUser({ navigation }: any) {
           required
         />
         
+        {user.password && <PasswordStrengthIndicator />}
+        
         <Input
           icon="check"
           label="Confirmar Senha *"
@@ -244,6 +395,28 @@ export default function CreateUser({ navigation }: any) {
           error={validationErrors.confirmPassword}
           required
         />
+        
+        <Button 
+          title="Continuar" 
+          onPress={handleNextStep}
+          full
+          icon={<Feather name="arrow-right" size={18} color="#fff" style={{ marginLeft: 8 }} />}
+          iconPosition="right"
+        />
+      </View>
+    );
+  };
+
+  // Render second step form
+  const renderAdditionalInfoForm = () => {
+    return (
+      <View style={styles.formCard}>
+        <View style={styles.sectionHeader}>
+          <Feather name="user-plus" size={20} color={theme.primary} />
+          <Text style={styles.sectionTitle}>
+            Informações Adicionais
+          </Text>
+        </View>
         
         <Input
           icon="user"
@@ -263,44 +436,23 @@ export default function CreateUser({ navigation }: any) {
           error={validationErrors.phone}
           helperText="Formato: (XX) XXXXX-XXXX"
         />
-      </View>
-      
-      <View style={styles.formCard}>
-        <View style={styles.sectionHeader}>
-          <Feather name="settings" size={20} color="#2563EB" />
-          <Text style={styles.sectionTitle}>
-            Configurações de Conta
-          </Text>
-        </View>
         
-        <Text style={styles.fieldLabel}>Função:</Text>
-        <View style={styles.pickerContainer}>
-          <Picker
-            selectedValue={user.role}
-            onValueChange={value => setUser({...user, role: value})}
-            style={styles.picker}
-            dropdownIconColor={'#000000'}
-          >
-            {roles.map(role => (
-              <Picker.Item 
-                key={role.id} 
-                label={role.description} 
-                value={role.name}
-                color={'#000000'}
-              />
-            ))}
-          </Picker>
-        </View>
-        
-        <View style={styles.roleBadgePreview}>
-          <Text style={styles.previewLabel}>
-            Preview do badge:
-          </Text>
-          <View style={[
-            styles.roleBadge,
-            { backgroundColor: getRoleBadgeColor(user.role) }
-          ]}>
-            <Text style={styles.roleBadgeText}>{user.role}</Text>
+        <View style={styles.roleSection}>
+          <Text style={styles.fieldLabel}>Função do usuário:</Text>
+          
+          {/* Custom Picker Component */}
+          <RolePicker />
+          
+          <View style={styles.roleBadgePreview}>
+            <Text style={styles.previewLabel}>
+              Preview do badge:
+            </Text>
+            <View style={[
+              styles.roleBadge,
+              { backgroundColor: getRoleBadgeColor(user.role) }
+            ]}>
+              <Text style={styles.roleBadgeText}>{user.role}</Text>
+            </View>
           </View>
         </View>
         
@@ -308,49 +460,110 @@ export default function CreateUser({ navigation }: any) {
           <View>
             <Text style={styles.switchLabel}>Status da conta:</Text>
             <Text style={styles.switchDescription}>
-              Quando desativada, a conta não poderá fazer login
+              {user.isActive 
+                ? "Usuário poderá fazer login no sistema" 
+                : "Conta desativada, login bloqueado"}
             </Text>
           </View>
           <Switch
             value={user.isActive}
             onValueChange={value => setUser({...user, isActive: value})}
             trackColor={{ 
-              false: '#d1d1d1', 
+              false: isDarkMode ? '#555' : '#d1d1d1', 
               true: 'rgba(46, 125, 50, 0.5)' 
             }}
             thumbColor={
               user.isActive 
                 ? '#2E7D32'
-                : '#f4f3f4'
+                : isDarkMode ? '#888' : '#f4f3f4'
             }
           />
         </View>
+        
+        <View style={styles.buttonsContainer}>
+          <Button 
+            title="Voltar" 
+            variant="outline"
+            onPress={() => setFormStep(1)}
+            icon={<Feather name="arrow-left" size={18} color={theme.primary} style={{ marginRight: 8 }} />}
+          />
+          
+          <Button 
+            title="Criar Usuário" 
+            onPress={handleNextStep} 
+            loading={loading}
+            icon={<Feather name="user-plus" size={18} color="#fff" style={{ marginRight: 8 }} />}
+          />
+        </View>
       </View>
-      
-      <View style={styles.buttonsContainer}>
-        <Button 
-          title="Cancelar" 
-          variant="outline"
-          onPress={() => navigation.goBack()}
-          disabled={loading}
-          icon={<Feather name="x" size={18} color="#2563EB" style={{ marginRight: 8 }} />}
+    );
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
+    >
+      <ScrollView 
+        style={[styles.container, { backgroundColor: isDarkMode ? theme.background : '#F5F5F5' }]}
+        contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled" // Importante: Impede que o scroll feche o teclado
+      >
+        <StatusBar 
+          backgroundColor={theme.primary}
+          barStyle="light-content" 
         />
         
-        <Button 
-          title="Criar Usuário" 
-          onPress={handleCreateUser} 
-          loading={loading}
-          icon={<Feather name="user-plus" size={18} color="#fff" style={{ marginRight: 8 }} />}
-        />
-      </View>
-    </ScrollView>
+        <Animated.View style={[
+          styles.headerCard,
+          { 
+            backgroundColor: isDarkMode ? theme.surface : '#FFFFFF',
+            borderColor: isDarkMode ? theme.border : '#DDDDDD',
+            opacity: fadeAnim,
+            transform: [{ translateY: slideAnim }]
+          }
+        ]}>
+          <View style={[
+            styles.headerIcon,
+            { backgroundColor: `${theme.primary}20` }
+          ]}>
+            <Feather name="user-plus" size={40} color={theme.primary} />
+          </View>
+          <Text style={[
+            styles.headerTitle,
+            { color: theme.text }
+          ]}>
+            Adicionar Novo Usuário
+          </Text>
+          <Text style={[
+            styles.headerSubtitle,
+            { color: isDarkMode ? theme.textLight : '#555555' }
+          ]}>
+            Preencha as informações para criar um novo usuário no sistema
+          </Text>
+          
+          {/* Step indicator */}
+          <StepIndicator />
+        </Animated.View>
+        
+        <Animated.View style={{
+          opacity: fadeAnim,
+          transform: [{ translateX: slideFormAnim }]
+        }}>
+          {formStep === 1 ? renderBasicInfoForm() : renderAdditionalInfoForm()}
+        </Animated.View>
+        
+        <View style={styles.footer} />
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
   },
   contentContainer: {
     padding: 16,
@@ -358,7 +571,7 @@ const styles = StyleSheet.create({
   },
   headerCard: {
     borderRadius: 16,
-    padding: 20,
+    padding: 24,
     marginBottom: 16,
     alignItems: 'center',
     shadowColor: '#000',
@@ -367,8 +580,6 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
     borderWidth: 1,
-    backgroundColor: '#FFFFFF',
-    borderColor: '#AAAAAA',
   },
   headerIcon: {
     width: 80,
@@ -377,24 +588,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
-    backgroundColor: 'rgba(37, 99, 235, 0.1)',
   },
   headerTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: 'bold',
     marginBottom: 8,
     textAlign: 'center',
-    color: '#000000',
   },
   headerSubtitle: {
-    fontSize: 14,
+    fontSize: 15,
     textAlign: 'center',
     paddingHorizontal: 20,
-    color: '#333333',
+    marginBottom: 20,
   },
   formCard: {
     borderRadius: 16,
-    padding: 16,
+    padding: 20,
     marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -403,36 +612,34 @@ const styles = StyleSheet.create({
     elevation: 3,
     borderWidth: 1,
     backgroundColor: '#FFFFFF',
-    borderColor: '#AAAAAA',
+    borderColor: '#DDDDDD',
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 20,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    marginLeft: 8,
+    marginLeft: 10,
     color: '#000000',
   },
   fieldLabel: {
     fontSize: 14,
     fontWeight: '500',
-    marginBottom: 6,
+    marginBottom: 8,
     color: '#000000',
   },
   pickerContainer: {
     borderWidth: 1,
     borderRadius: 8,
-    marginBottom: 8,
+    marginBottom: 10,
     overflow: 'hidden',
-    backgroundColor: '#F5F5F5',
-    borderColor: '#AAAAAA',
+    zIndex: 999, // Importante para garantir que o picker fique por cima de outros elementos
   },
   picker: {
     height: 50,
-    color: '#000000',
   },
   roleBadgePreview: {
     flexDirection: 'row',
@@ -442,11 +649,11 @@ const styles = StyleSheet.create({
   },
   previewLabel: {
     fontSize: 14,
-    marginRight: 8,
-    color: '#333333',
+    marginRight: 10,
+    color: '#555555',
   },
   roleBadge: {
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 12,
   },
@@ -459,27 +666,96 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 12,
+    padding: 16,
     borderRadius: 8,
-    marginTop: 8,
+    marginVertical: 16,
     borderWidth: 1,
-    backgroundColor: '#F5F5F5',
-    borderColor: '#AAAAAA',
+    backgroundColor: '#F9FAFB',
+    borderColor: '#DDDDDD',
   },
   switchLabel: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '500',
     marginBottom: 4,
     color: '#000000',
   },
   switchDescription: {
-    fontSize: 12,
+    fontSize: 13,
     maxWidth: '80%',
-    color: '#333333',
+    color: '#555555',
   },
   buttonsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 24,
+  },
+  passwordStrengthContainer: {
+    marginTop: -8,
+    marginBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  strengthBarContainer: {
+    height: 4,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 2,
+    flex: 1,
+    overflow: 'hidden',
+  },
+  strengthBar: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  strengthLabel: {
+    marginLeft: 8,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  stepIndicatorContainer: {
+    width: '80%',
+    marginTop: 20,
+    position: 'relative',
+  },
+  stepLine: {
+    position: 'absolute',
+    top: '50%',
+    left: '15%',
+    right: '15%',
+    height: 2,
+    backgroundColor: '#E0E0E0',
+    zIndex: 1,
+  },
+  stepsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    zIndex: 2,
+  },
+  stepCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#CCCCCC',
+  },
+  activeStep: {
+    borderColor: '#2563EB',
+    backgroundColor: '#EFF6FF',
+  },
+  stepNumber: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#999999',
+  },
+  activeStepText: {
+    color: '#2563EB',
+  },
+  roleSection: {
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  footer: {
+    height: 20,
   },
 });
