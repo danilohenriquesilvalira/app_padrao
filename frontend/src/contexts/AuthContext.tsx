@@ -27,6 +27,19 @@ type AuthContextData = {
 
 const AuthContext = createContext<AuthContextData>({} as AuthContextData);
 
+// Função para converter dados da API (snake_case) para o formato do frontend (camelCase)
+function convertUserData(apiUser: any): User {
+  return {
+    id: apiUser.id,
+    username: apiUser.username,
+    email: apiUser.email,
+    role: apiUser.role,
+    fullName: apiUser.full_name || '', // Aqui está a conversão de full_name para fullName
+    phone: apiUser.phone || '',
+    isActive: apiUser.is_active
+  };
+}
+
 export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -52,7 +65,9 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
 
       if (storedUser && storedToken) {
         api.defaults.headers.Authorization = `Bearer ${storedToken}`;
-        setUser(JSON.parse(storedUser));
+        // Converter o usuário armazenado para o formato correto
+        const parsedUser = JSON.parse(storedUser);
+        setUser(convertUserData(parsedUser));
         loadPermissions();
       }
       
@@ -66,7 +81,11 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
     try {
       const response = await api.post('/login', { email, password });
       
-      setUser(response.data.user);
+      // Converter o usuário recebido da API para o formato esperado pelo frontend
+      const convertedUser = convertUserData(response.data.user);
+      setUser(convertedUser);
+      
+      // Armazenar os dados originais da API (para não perder informações)
       await AsyncStorage.setItem('@App:user', JSON.stringify(response.data.user));
       await AsyncStorage.setItem('@App:token', response.data.token);
       
@@ -88,9 +107,22 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
   async function updateProfile(data: any) {
     try {
       const response = await api.put('/api/profile', data);
-      const updatedUser = { ...user, ...response.data.user };
-      setUser(updatedUser);
-      await AsyncStorage.setItem('@App:user', JSON.stringify(updatedUser));
+      
+      // Se há um usuário logado, atualizar o estado
+      if (user) {
+        // Converter o usuário recebido para o formato correto
+        const updatedUser = { ...user, ...convertUserData(response.data.user) };
+        setUser(updatedUser);
+        
+        // Atualizar o armazenamento
+        const storedUser = await AsyncStorage.getItem('@App:user');
+        if (storedUser) {
+          const parsedUser = JSON.parse(storedUser);
+          // Mesclar os dados atualizados com os existentes
+          const mergedUser = { ...parsedUser, ...response.data.user };
+          await AsyncStorage.setItem('@App:user', JSON.stringify(mergedUser));
+        }
+      }
     } catch (error) {
       throw error;
     }

@@ -1,4 +1,3 @@
-// src/navigation/index.tsx
 import React from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
@@ -10,7 +9,6 @@ import Login from '../screens/Login';
 import Register from '../screens/Register';
 import Home from '../screens/Home';
 import Profile from '../screens/Profile';
-import ProfileDetails from '../screens/ProfileDetails';
 import Preferences from '../screens/Preferences';
 import UserList from '../screens/Admin/UserList';
 import EditUser from '../screens/Admin/EditUser';
@@ -36,12 +34,7 @@ function ProfileStack() {
       <Stack.Screen 
         name="ProfileMain" 
         component={Profile} 
-        options={{ headerShown: false }} 
-      />
-      <Stack.Screen 
-        name="ProfileDetails" 
-        component={ProfileDetails} 
-        options={{ title: 'Perfil Avançado' }} 
+        options={{ title: 'Perfil' }} 
       />
       <Stack.Screen 
         name="Preferences" 

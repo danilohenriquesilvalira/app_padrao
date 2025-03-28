@@ -1,5 +1,6 @@
 // src/contexts/ThemeContext.tsx
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useRef } from 'react';
+import { Animated } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from './AuthContext';
 import api from '../services/api';
@@ -38,9 +39,11 @@ export type ThemeContextData = {
   availableThemes: Theme[];
   changeTheme: (themeName: string) => Promise<void>;
   fetchThemes: () => Promise<void>;
+  isChangingTheme: boolean;
+  fadeAnim: Animated.Value;
 };
 
-// Temas padrão que sempre estarão disponíveis
+// Temas padrão com descrições
 const defaultThemes = [
   {
     id: 1,
@@ -55,31 +58,51 @@ const defaultThemes = [
   {
     id: 2,
     name: 'dark',
-    primary_color: '#333333',
-    secondary_color: '#555555',
+    primary_color: '#BB86FC',
+    secondary_color: '#03DAC6',
     text_color: '#FFFFFF',
     background_color: '#121212',
-    accent_color: '#BB86FC',
+    accent_color: '#CF6679',
     is_default: false
   },
   {
     id: 3,
     name: 'blue',
-    primary_color: '#3498db',
-    secondary_color: '#2980b9',
-    text_color: '#333333',
-    background_color: '#ecf0f1',
-    accent_color: '#e74c3c',
+    primary_color: '#1976D2',
+    secondary_color: '#64B5F6',
+    text_color: '#212121',
+    background_color: '#F5F5F5',
+    accent_color: '#FF4081',
     is_default: false
   },
   {
     id: 4,
-    name: 'green',
-    primary_color: '#2ecc71',
-    secondary_color: '#27ae60',
-    text_color: '#333333',
-    background_color: '#ecf0f1',
-    accent_color: '#e67e22',
+    name: 'nature',
+    primary_color: '#388E3C',
+    secondary_color: '#8BC34A',
+    text_color: '#212121',
+    background_color: '#F1F8E9',
+    accent_color: '#FF9800',
+    is_default: false
+  },
+  {
+    id: 5,
+    name: 'sunset',
+    primary_color: '#E64A19',
+    secondary_color: '#FF5722',
+    text_color: '#212121',
+    background_color: '#FBE9E7',
+    accent_color: '#FFC107',
+    is_default: false
+  },
+  {
+    id: 6,
+    name: 'midnight',
+    primary_color: '#303F9F',
+    secondary_color: '#3F51B5',
+    text_color: '#FFFFFF',
+    background_color: '#0A1929',
+    accent_color: '#00BCD4',
     is_default: false
   }
 ];
@@ -104,15 +127,20 @@ const defaultColors: ThemeColors = {
 const ThemeContext = createContext<ThemeContextData>({} as ThemeContextData);
 
 export const ThemeProvider: React.FC<{children: React.ReactNode}> = ({ children }) => {
-  const { signed } = useAuth();
+  const { signed, user } = useAuth();
   const [theme, setTheme] = useState<ThemeColors>(defaultColors);
   const [currentThemeName, setCurrentThemeName] = useState<string>('default');
   const [availableThemes, setAvailableThemes] = useState<Theme[]>(defaultThemes);
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
+  const [isChangingTheme, setIsChangingTheme] = useState<boolean>(false);
+  const fadeAnim = useRef(new Animated.Value(1)).current;
 
   // Função para converter um tema do backend em cores para o app
   const themeToColors = (theme: Theme): ThemeColors => {
-    const isDark = theme.name === 'dark' || theme.background_color.toLowerCase() === '#121212';
+    const isDark = theme.name === 'dark' || 
+                  theme.name === 'midnight' || 
+                  theme.background_color.toLowerCase() === '#121212' ||
+                  theme.background_color.toLowerCase().startsWith('#0');
     
     return {
       primary: theme.primary_color,
@@ -137,7 +165,7 @@ export const ThemeProvider: React.FC<{children: React.ReactNode}> = ({ children 
       try {
         const storedThemeName = await AsyncStorage.getItem('@App:theme');
         if (storedThemeName) {
-          changeTheme(storedThemeName);
+          changeTheme(storedThemeName, false); // false para não salvar novamente no servidor
         }
       } catch (error) {
         console.error('Erro ao carregar tema:', error);
@@ -147,12 +175,28 @@ export const ThemeProvider: React.FC<{children: React.ReactNode}> = ({ children 
     loadStoredTheme();
   }, []);
 
-  // Quando o usuário faz login, buscar temas disponíveis
+  // Quando o usuário faz login, buscar temas disponíveis e tentar carregar o tema do usuário
   useEffect(() => {
     if (signed) {
       fetchThemes();
+      if (user?.id) {
+        loadUserTheme();
+      }
     }
-  }, [signed]);
+  }, [signed, user?.id]);
+
+  // Carregar tema do usuário do backend
+  const loadUserTheme = async () => {
+    try {
+      const response = await api.get('/api/profile');
+      if (response.data?.profile?.theme) {
+        // Usar o tema do perfil do usuário
+        changeTheme(response.data.profile.theme, false);
+      }
+    } catch (error) {
+      console.error('Erro ao carregar tema do usuário:', error);
+    }
+  };
 
   // Função para buscar temas disponíveis
   const fetchThemes = async () => {
@@ -167,29 +211,62 @@ export const ThemeProvider: React.FC<{children: React.ReactNode}> = ({ children 
     }
   };
 
-  // Função para mudar o tema
-  const changeTheme = async (themeName: string) => {
-    try {
-      // Procurar o tema pelo nome
-      const selectedTheme = availableThemes.find(t => t.name === themeName);
+  // Função para animar a transição de temas
+  const animateThemeChange = (callback: () => void) => {
+    // Fade out
+    Animated.timing(fadeAnim, {
+      toValue: 0,
+      duration: 250,
+      useNativeDriver: true,
+    }).start(() => {
+      // Executar a mudança de tema
+      callback();
       
-      if (selectedTheme) {
-        // Converter tema para cores
-        const newColors = themeToColors(selectedTheme);
-        setTheme(newColors);
-        setCurrentThemeName(themeName);
-        setIsDarkMode(themeName === 'dark' || selectedTheme.background_color.toLowerCase() === '#121212');
+      // Fade in
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 250,
+        useNativeDriver: true,
+      }).start(() => {
+        setIsChangingTheme(false);
+      });
+    });
+  };
+
+  // Função para mudar o tema com animação e salvamento no servidor se necessário
+  const changeTheme = async (themeName: string, saveToServer = true) => {
+    try {
+      setIsChangingTheme(true);
+      
+      // Animar a transição
+      animateThemeChange(() => {
+        // Procurar o tema pelo nome
+        const selectedTheme = availableThemes.find(t => t.name === themeName) || defaultThemes.find(t => t.name === themeName);
         
-        // Salvar tema localmente
-        await AsyncStorage.setItem('@App:theme', themeName);
-        
-        // Se estiver autenticado, salvar tema no servidor
-        if (signed) {
-          await api.put('/api/profile', { theme: themeName });
+        if (selectedTheme) {
+          // Converter tema para cores
+          const newColors = themeToColors(selectedTheme);
+          setTheme(newColors);
+          setCurrentThemeName(themeName);
+          setIsDarkMode(
+            themeName === 'dark' || 
+            themeName === 'midnight' || 
+            selectedTheme.background_color.toLowerCase() === '#121212' ||
+            selectedTheme.background_color.toLowerCase().startsWith('#0')
+          );
         }
+      });
+      
+      // Salvar tema localmente
+      await AsyncStorage.setItem('@App:theme', themeName);
+      
+      // Se estiver autenticado e for solicitado, salvar tema no servidor
+      if (signed && saveToServer) {
+        await api.put('/api/profile', { theme: themeName });
       }
     } catch (error) {
       console.error('Erro ao alterar tema:', error);
+      setIsChangingTheme(false);
     }
   };
 
@@ -200,7 +277,9 @@ export const ThemeProvider: React.FC<{children: React.ReactNode}> = ({ children 
       isDarkMode, 
       availableThemes, 
       changeTheme,
-      fetchThemes
+      fetchThemes,
+      isChangingTheme,
+      fadeAnim
     }}>
       {children}
     </ThemeContext.Provider>
