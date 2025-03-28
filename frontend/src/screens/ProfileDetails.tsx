@@ -8,7 +8,8 @@ import {
   TouchableOpacity,
   Image,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
+  Dimensions
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Feather } from '@expo/vector-icons';
@@ -16,43 +17,41 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 import api from '../services/api';
 import Input from '../components/Input';
 import Button from '../components/Button';
 
-interface Theme {
-  id: number;
-  name: string;
-  primaryColor: string;
-  secondaryColor: string;
-  textColor: string;
-  backgroundColor: string;
-  accentColor: string;
-  isDefault: boolean;
-}
-
 interface Profile {
   bio: string;
-  avatarUrl: string | null;
+  avatar_url: string | null;
   theme: string;
-  fontSize: string;
+  font_size: string;
   language: string;
   department?: string;
 }
 
+const windowWidth = Dimensions.get('window').width;
+
 export default function ProfileDetails() {
   const { user, updateProfile } = useAuth();
+  const { 
+    theme, 
+    currentThemeName, 
+    availableThemes, 
+    changeTheme, 
+    isDarkMode 
+  } = useTheme();
   const navigation = useNavigation();
   const [loading, setLoading] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
   const [profile, setProfile] = useState<Profile>({
     bio: '',
-    avatarUrl: null,
-    theme: 'default',
-    fontSize: 'medium',
+    avatar_url: null,
+    theme: currentThemeName,
+    font_size: 'medium',
     language: 'pt_BR'
   });
-  const [themes, setThemes] = useState<Theme[]>([]);
   const [form, setForm] = useState({
     fullName: user?.fullName || '',
     phone: user?.phone || '',
@@ -61,7 +60,6 @@ export default function ProfileDetails() {
 
   useEffect(() => {
     loadProfile();
-    loadThemes();
   }, []);
 
   const loadProfile = async () => {
@@ -70,27 +68,30 @@ export default function ProfileDetails() {
       const response = await api.get('/api/profile');
       
       if (response.data.profile) {
-        setProfile(response.data.profile);
+        setProfile({
+          bio: response.data.profile.bio || '',
+          avatar_url: response.data.profile.avatar_url || null,
+          theme: response.data.profile.theme || currentThemeName,
+          font_size: response.data.profile.font_size || 'medium',
+          language: response.data.profile.language || 'pt_BR',
+          department: response.data.profile.department || ''
+        });
+        
         setForm(prev => ({
           ...prev,
-          bio: response.data.profile.bio || ''
+          bio: response.data.profile.bio || '',
+          fullName: user?.fullName || '',
+          phone: user?.phone || ''
         }));
       }
     } catch (error) {
       console.error('Erro ao carregar perfil:', error);
+      Alert.alert(
+        'Erro', 
+        'Não foi possível carregar seu perfil. Tente novamente mais tarde.'
+      );
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadThemes = async () => {
-    try {
-      const response = await api.get('/api/themes');
-      if (response.data.themes) {
-        setThemes(response.data.themes);
-      }
-    } catch (error) {
-      console.error('Erro ao carregar temas:', error);
     }
   };
 
@@ -107,14 +108,15 @@ export default function ProfileDetails() {
       // Atualizar perfil estendido
       await api.put('/api/profile', {
         bio: form.bio,
-        theme: profile.theme,
-        fontSize: profile.fontSize,
-        language: profile.language
+        theme: profile.theme || currentThemeName,
+        font_size: profile.font_size || 'medium',
+        language: profile.language || 'pt_BR'
       });
       
       Alert.alert('Sucesso', 'Perfil atualizado com sucesso');
     } catch (error) {
-      Alert.alert('Erro', 'Falha ao atualizar perfil');
+      console.error('Erro ao atualizar perfil:', error);
+      Alert.alert('Erro', 'Falha ao atualizar perfil. Tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -166,7 +168,7 @@ export default function ProfileDetails() {
       if (response.data.avatar_url) {
         setProfile(prev => ({
           ...prev,
-          avatarUrl: response.data.avatar_url
+          avatar_url: response.data.avatar_url
         }));
         
         Alert.alert('Sucesso', 'Foto de perfil atualizada');
@@ -186,28 +188,25 @@ export default function ProfileDetails() {
         theme: themeName
       }));
       
-      await AsyncStorage.setItem('@App:theme', themeName);
-      
-      // Atualiza no servidor
-      await api.put('/api/profile', {
-        theme: themeName
-      });
+      // Usar o context de tema para mudar o tema globalmente
+      await changeTheme(themeName);
     } catch (error) {
       console.error('Erro ao alterar tema:', error);
+      Alert.alert('Erro', 'Não foi possível alterar o tema');
     }
   };
 
   if (loading && !profile.theme) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4285F4" />
+      <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={theme.primary} />
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
+    <ScrollView style={[styles.container, { backgroundColor: theme.background }]}>
+      <View style={[styles.header, { backgroundColor: theme.surface }]}>
         <TouchableOpacity 
           style={styles.avatarContainer}
           onPress={handlePickImage}
@@ -217,87 +216,160 @@ export default function ProfileDetails() {
             <ActivityIndicator size="small" color="#fff" style={styles.avatarLoading} />
           ) : (
             <>
-              {profile.avatarUrl ? (
+              {profile.avatar_url ? (
                 <Image 
-                  source={{ uri: `${api.defaults.baseURL}${profile.avatarUrl}` }} 
-                  style={styles.avatar} 
+                  source={{ 
+                    uri: profile.avatar_url.startsWith('http') 
+                      ? profile.avatar_url 
+                      : `${api.defaults.baseURL}${profile.avatar_url}` 
+                  }} 
+                  style={styles.avatar}
+                  onError={() => {
+                    setProfile(prev => ({ ...prev, avatar_url: null }));
+                  }}
                 />
               ) : (
-                <View style={styles.avatarPlaceholder}>
+                <View style={[styles.avatarPlaceholder, { backgroundColor: theme.primary }]}>
                   <Feather name="user" size={40} color="#fff" />
                 </View>
               )}
-              <View style={styles.avatarEditBadge}>
+              <View style={[styles.avatarEditBadge, { backgroundColor: theme.primary }]}>
                 <Feather name="camera" size={14} color="#fff" />
               </View>
             </>
           )}
         </TouchableOpacity>
         
-        <Text style={styles.username}>{user?.username}</Text>
-        <Text style={styles.email}>{user?.email}</Text>
-        <View style={styles.roleBadge}>
-          <Text style={styles.roleText}>{user?.role}</Text>
+        <Text style={[styles.username, { color: theme.text }]}>
+          {user?.username || 'Usuário'}
+        </Text>
+        <Text style={[styles.email, { color: isDarkMode ? '#BBB' : '#666' }]}>
+          {user?.email || 'email@exemplo.com'}
+        </Text>
+        <View style={[styles.roleBadge, { backgroundColor: theme.primary }]}>
+          <Text style={styles.roleText}>{user?.role || 'user'}</Text>
         </View>
       </View>
       
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Informações Pessoais</Text>
+      <View style={[styles.section, { backgroundColor: theme.surface }]}>
+        <View style={styles.sectionHeader}>
+          <Feather name="user" size={20} color={theme.primary} />
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>
+            Informações Pessoais
+          </Text>
+        </View>
         
         <Input
-          placeholder="Nome Completo"
+          icon="user"
+          label="Nome Completo"
+          placeholder="Seu nome completo"
           value={form.fullName}
           onChangeText={(text) => setForm({...form, fullName: text})}
+          helperText="Como você gostaria de ser chamado"
         />
         
         <Input
-          placeholder="Telefone"
+          icon="phone"
+          label="Telefone"
+          placeholder="Seu número de telefone"
           value={form.phone}
           onChangeText={(text) => setForm({...form, phone: text})}
           keyboardType="phone-pad"
+          helperText="Opcional, para contato"
         />
         
         <Input
-          placeholder="Bio"
+          icon="file-text"
+          label="Biografia"
+          placeholder="Conte um pouco sobre você"
           value={form.bio}
           onChangeText={(text) => setForm({...form, bio: text})}
           multiline
           numberOfLines={4}
           textAlignVertical="top"
           style={styles.bioInput}
+          helperText="Uma breve descrição sobre você"
         />
       </View>
       
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Temas</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.themesContainer}>
-          {themes.map((theme) => (
+      <View style={[styles.section, { backgroundColor: theme.surface }]}>
+        <View style={styles.sectionHeader}>
+          <Feather name="droplet" size={20} color={theme.primary} />
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>
+            Temas
+          </Text>
+        </View>
+        
+        <Text style={[styles.themesDescription, { color: isDarkMode ? '#BBB' : '#666' }]}>
+          Escolha um tema para personalizar a aparência do aplicativo
+        </Text>
+        
+        <View style={styles.themeGrid}>
+          {availableThemes.map((themeOption) => (
             <TouchableOpacity
-              key={theme.id}
+              key={themeOption.id}
               style={[
                 styles.themeItem,
-                { backgroundColor: theme.primaryColor },
-                profile.theme === theme.name && styles.selectedTheme
+                { 
+                  backgroundColor: themeOption.background_color,
+                  borderColor: currentThemeName === themeOption.name 
+                    ? themeOption.accent_color 
+                    : 'transparent',
+                  width: (windowWidth - 60) / 2,
+                }
               ]}
-              onPress={() => handleChangeTheme(theme.name)}
+              onPress={() => handleChangeTheme(themeOption.name)}
             >
-              <Text style={styles.themeText}>{theme.name}</Text>
-              {profile.theme === theme.name && (
-                <Feather name="check" size={16} color="#fff" style={styles.checkIcon} />
+              <View 
+                style={[
+                  styles.themeColorPreview, 
+                  { backgroundColor: themeOption.primary_color }
+                ]} 
+              />
+              <Text 
+                style={[
+                  styles.themeText, 
+                  { color: themeOption.text_color }
+                ]}
+              >
+                {themeOption.name}
+              </Text>
+              {currentThemeName === themeOption.name && (
+                <View style={styles.themeSelectedIndicator}>
+                  <Feather 
+                    name="check-circle" 
+                    size={20} 
+                    color={themeOption.primary_color} 
+                  />
+                </View>
               )}
             </TouchableOpacity>
           ))}
-        </ScrollView>
+        </View>
       </View>
       
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Preferências</Text>
+      <View style={[styles.section, { backgroundColor: theme.surface }]}>
+        <View style={styles.sectionHeader}>
+          <Feather name="settings" size={20} color={theme.primary} />
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>
+            Preferências
+          </Text>
+        </View>
+        
         <TouchableOpacity 
-          style={styles.preferencesButton}
+          style={[
+            styles.preferencesButton,
+            { backgroundColor: isDarkMode ? theme.surfaceVariant : '#f9f9f9' }
+          ]}
           onPress={() => navigation.navigate('Preferences' as never)}
         >
-          <Text style={styles.preferencesButtonText}>Gerenciar preferências</Text>
-          <Feather name="chevron-right" size={20} color="#4285F4" />
+          <View style={styles.prefButtonContent}>
+            <Feather name="sliders" size={20} color={theme.primary} style={styles.prefIcon} />
+            <Text style={[styles.preferencesButtonText, { color: theme.text }]}>
+              Gerenciar preferências
+            </Text>
+          </View>
+          <Feather name="chevron-right" size={20} color={theme.primary} />
         </TouchableOpacity>
       </View>
       
@@ -305,6 +377,7 @@ export default function ProfileDetails() {
         title="Salvar Alterações" 
         onPress={handleUpdateProfile} 
         loading={loading}
+        icon={<Feather name="save" size={18} color="#FFF" />}
       />
       
       <View style={styles.footer} />
@@ -315,20 +388,18 @@ export default function ProfileDetails() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
   },
   header: {
     alignItems: 'center',
     padding: 20,
-    backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
+    marginBottom: 15,
   },
   avatarContainer: {
     width: 100,
@@ -346,7 +417,6 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     borderRadius: 50,
-    backgroundColor: '#ccc',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -354,7 +424,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 0,
     right: 0,
-    backgroundColor: '#4285F4',
     borderRadius: 15,
     width: 30,
     height: 30,
@@ -381,11 +450,9 @@ const styles = StyleSheet.create({
   },
   email: {
     fontSize: 16,
-    color: '#666',
     marginBottom: 10,
   },
   roleBadge: {
-    backgroundColor: '#4285F4',
     paddingVertical: 4,
     paddingHorizontal: 12,
     borderRadius: 12,
@@ -395,10 +462,9 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   section: {
-    backgroundColor: '#fff',
     padding: 15,
     marginVertical: 10,
-    borderRadius: 8,
+    borderRadius: 12,
     marginHorizontal: 15,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -406,11 +472,19 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
+    marginLeft: 8,
+  },
+  themesDescription: {
+    fontSize: 14,
     marginBottom: 15,
-    color: '#333',
   },
   bioInput: {
     height: 100,
@@ -419,41 +493,68 @@ const styles = StyleSheet.create({
   },
   themesContainer: {
     flexDirection: 'row',
+    marginBottom: 15,
+  },
+  themeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
     marginBottom: 10,
+    marginTop: 10,
   },
   themeItem: {
     padding: 12,
-    borderRadius: 8,
-    marginRight: 10,
-    minWidth: 100,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  selectedTheme: {
+    borderRadius: 12,
+    height: 100,
+    marginBottom: 12,
     borderWidth: 2,
-    borderColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  themeColorPreview: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginBottom: 8,
   },
   themeText: {
-    color: '#fff',
     fontWeight: 'bold',
+    textTransform: 'capitalize',
   },
-  checkIcon: {
+  themeSelectedIndicator: {
     position: 'absolute',
-    top: 5,
-    right: 5,
+    top: 8,
+    right: 8,
+  },
+  themePreview: {
+    marginTop: 10,
+    marginBottom: 5,
+  },
+  themePreviewTitle: {
+    fontSize: 14,
+    marginBottom: 10,
+  },
+  themePreviewContent: {
+    alignItems: 'center',
   },
   preferencesButton: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 15,
-    backgroundColor: '#f9f9f9',
     borderRadius: 8,
+  },
+  prefButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  prefIcon: {
+    marginRight: 10,
   },
   preferencesButtonText: {
     fontSize: 16,
-    color: '#333',
   },
   footer: {
     height: 40,

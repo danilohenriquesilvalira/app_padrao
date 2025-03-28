@@ -21,6 +21,7 @@ type Server struct {
 	userHandler       *handler.UserHandler
 	adminHandler      *handler.AdminHandler
 	permissionHandler *handler.PermissionHandler
+	profileHandler    *handler.ProfileHandler // Adicionado handler de perfil
 	userRepo          domain.UserRepository
 	cfg               *config.Config
 }
@@ -31,6 +32,7 @@ func NewServer(
 	userHandler *handler.UserHandler,
 	adminHandler *handler.AdminHandler,
 	permissionHandler *handler.PermissionHandler,
+	profileHandler *handler.ProfileHandler, // Adicionado handler de perfil
 	userRepo domain.UserRepository,
 ) *Server {
 	router := gin.Default()
@@ -41,6 +43,7 @@ func NewServer(
 		userHandler:       userHandler,
 		adminHandler:      adminHandler,
 		permissionHandler: permissionHandler,
+		profileHandler:    profileHandler, // Adicionado handler de perfil
 		userRepo:          userRepo,
 		cfg:               cfg,
 	}
@@ -53,6 +56,7 @@ func (s *Server) Run() error {
 		s.userHandler,
 		s.adminHandler,
 		s.permissionHandler,
+		s.profileHandler, // Adicionado handler de perfil
 		s.userRepo,
 		s.cfg.JWT.SecretKey,
 	)

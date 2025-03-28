@@ -7,7 +7,7 @@ import (
 )
 
 type Profile struct {
-	ID                      int             `json:"id"`
+	// Removido ID como campo separado
 	UserID                  int             `json:"user_id"`
 	AvatarURL               string          `json:"avatar_url"`
 	Bio                     string          `json:"bio"`

@@ -34,19 +34,24 @@ func main() {
 	// Repositórios
 	userRepo := repository.NewUserRepository(db)
 	roleRepo := repository.NewRoleRepository(db)
+	themeRepo := repository.NewThemeRepository(db)     // Novo repositório de temas
+	profileRepo := repository.NewProfileRepository(db) // Novo repositório de perfis
 
 	// Serviços
 	userService := service.NewUserService(userRepo, cfg.JWT.SecretKey, cfg.JWT.ExpirationHours)
 	roleService := service.NewRoleService(roleRepo)
+	themeService := service.NewThemeService(themeRepo)       // Novo serviço de temas
+	profileService := service.NewProfileService(profileRepo) // Novo serviço de perfis
 
 	// Handlers
 	authHandler := handler.NewAuthHandler(userService)
 	userHandler := handler.NewUserHandler(userService)
 	adminHandler := handler.NewAdminHandler(userService, roleService)
 	permissionHandler := handler.NewPermissionHandler(roleService)
+	profileHandler := handler.NewProfileHandler(profileService, userService, themeService) // Novo handler de perfil
 
 	// Servidor
-	server := api.NewServer(cfg, authHandler, userHandler, adminHandler, permissionHandler, userRepo)
+	server := api.NewServer(cfg, authHandler, userHandler, adminHandler, permissionHandler, profileHandler, userRepo)
 
 	// Iniciar servidor em goroutine
 	go func() {
