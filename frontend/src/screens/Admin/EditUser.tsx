@@ -9,7 +9,8 @@ import {
   Text, 
   TouchableOpacity,
   Animated,
-  ActivityIndicator
+  ActivityIndicator,
+  StatusBar
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { Feather } from '@expo/vector-icons';
@@ -187,6 +188,10 @@ export default function EditUser({ route, navigation }: any) {
   if (loading) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
+        <StatusBar 
+          backgroundColor={isDarkMode ? theme.background : theme.primary} 
+          barStyle={isDarkMode ? "light-content" : "light-content"} 
+        />
         <ActivityIndicator size="large" color={theme.primary} />
         <Text style={[styles.loadingText, { color: theme.text }]}>
           Carregando dados do usuário...
@@ -201,7 +206,9 @@ export default function EditUser({ route, navigation }: any) {
       case 'admin':
         return theme.error;
       case 'manager':
-        return '#FF9800';
+        return theme.warning;
+      case 'editor':
+        return theme.accent;
       default:
         return theme.success;
     }
@@ -212,11 +219,18 @@ export default function EditUser({ route, navigation }: any) {
       style={[styles.container, { backgroundColor: theme.background }]}
       contentContainerStyle={styles.contentContainer}
     >
+      <StatusBar 
+        backgroundColor={isDarkMode ? theme.background : theme.primary} 
+        barStyle={isDarkMode ? "light-content" : "light-content"} 
+      />
+      
       <Animated.View 
         style={[
           styles.headerCard,
           { 
-            backgroundColor: isDarkMode ? theme.surfaceVariant : '#fff',
+            backgroundColor: isDarkMode ? theme.surface : theme.card,
+            borderColor: theme.border,
+            shadowColor: theme.text,
             opacity: fadeAnim,
             transform: [{ translateY: slideAnim }]
           }
@@ -229,7 +243,7 @@ export default function EditUser({ route, navigation }: any) {
           
           <View style={styles.headerInfo}>
             <Text style={[styles.headerUsername, { color: theme.text }]}>{user.username}</Text>
-            <Text style={[styles.headerEmail, { color: isDarkMode ? '#BBB' : '#666' }]}>{user.email}</Text>
+            <Text style={[styles.headerEmail, { color: theme.textSecondary }]}>{user.email}</Text>
             
             <View style={styles.badgeContainer}>
               <View style={[styles.roleBadge, { backgroundColor: getRoleBadgeColor(user.role) }]}>
@@ -239,13 +253,13 @@ export default function EditUser({ route, navigation }: any) {
               <View style={[
                 styles.statusBadge, 
                 { 
-                  backgroundColor: user.isActive ? 'rgba(76, 175, 80, 0.2)' : 'rgba(158, 158, 158, 0.2)',
-                  borderColor: user.isActive ? theme.success : '#9E9E9E'
+                  backgroundColor: user.isActive ? `${theme.success}20` : `${theme.textLight}20`,
+                  borderColor: user.isActive ? theme.success : theme.textLight
                 }
               ]}>
                 <Text style={[
                   styles.statusBadgeText, 
-                  { color: user.isActive ? theme.success : '#9E9E9E' }
+                  { color: user.isActive ? theme.success : theme.textLight }
                 ]}>
                   {user.isActive ? 'Ativo' : 'Inativo'}
                 </Text>
@@ -259,7 +273,9 @@ export default function EditUser({ route, navigation }: any) {
         style={[
           styles.formCard,
           { 
-            backgroundColor: isDarkMode ? theme.surfaceVariant : '#fff',
+            backgroundColor: isDarkMode ? theme.surface : theme.card,
+            borderColor: theme.border,
+            shadowColor: theme.text,
             opacity: fadeAnim,
             transform: [{ translateY: slideAnim }]
           }
@@ -313,7 +329,9 @@ export default function EditUser({ route, navigation }: any) {
         style={[
           styles.formCard,
           { 
-            backgroundColor: isDarkMode ? theme.surfaceVariant : '#fff',
+            backgroundColor: isDarkMode ? theme.surface : theme.card,
+            borderColor: theme.border,
+            shadowColor: theme.text,
             opacity: fadeAnim,
             transform: [{ translateY: slideAnim }]
           }
@@ -330,7 +348,7 @@ export default function EditUser({ route, navigation }: any) {
         <View style={[
           styles.pickerContainer, 
           { 
-            backgroundColor: isDarkMode ? theme.surface : '#f9f9f9',
+            backgroundColor: isDarkMode ? theme.surfaceVariant : theme.elevation2,
             borderColor: theme.border
           }
         ]}>
@@ -351,10 +369,16 @@ export default function EditUser({ route, navigation }: any) {
           </Picker>
         </View>
         
-        <View style={styles.switchContainer}>
+        <View style={[
+          styles.switchContainer, 
+          { 
+            backgroundColor: isDarkMode ? theme.surfaceVariant : theme.elevation2,
+            borderColor: theme.border
+          }
+        ]}>
           <View>
             <Text style={[styles.switchLabel, { color: theme.text }]}>Status da conta:</Text>
-            <Text style={[styles.switchDescription, { color: isDarkMode ? '#BBB' : '#666' }]}>
+            <Text style={[styles.switchDescription, { color: theme.textSecondary }]}>
               Quando desativada, a conta não poderá fazer login
             </Text>
           </View>
@@ -409,6 +433,7 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     padding: 16,
+    paddingBottom: 30,
   },
   loadingContainer: {
     flex: 1,
@@ -428,6 +453,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+    borderWidth: 1,
   },
   headerContent: {
     flexDirection: 'row',
@@ -495,6 +521,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+    borderWidth: 1,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -527,6 +554,7 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 8,
     marginTop: 8,
+    borderWidth: 1,
   },
   switchLabel: {
     fontSize: 14,
@@ -535,6 +563,7 @@ const styles = StyleSheet.create({
   },
   switchDescription: {
     fontSize: 12,
+    maxWidth: '90%',
   },
   buttonsContainer: {
     flexDirection: 'row',

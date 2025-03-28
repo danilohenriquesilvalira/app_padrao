@@ -7,7 +7,8 @@ import {
   ScrollView, 
   Text, 
   Switch,
-  Animated
+  Animated,
+  StatusBar
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { Feather } from '@expo/vector-icons';
@@ -167,7 +168,9 @@ export default function CreateUser({ navigation }: any) {
       case 'admin':
         return theme.error;
       case 'manager':
-        return '#FF9800';
+        return theme.warning;
+      case 'editor':
+        return theme.accent;
       default:
         return theme.success;
     }
@@ -178,21 +181,31 @@ export default function CreateUser({ navigation }: any) {
       style={[styles.container, { backgroundColor: theme.background }]}
       contentContainerStyle={styles.contentContainer}
     >
+      <StatusBar 
+        backgroundColor={isDarkMode ? theme.background : theme.primary} 
+        barStyle={isDarkMode ? "light-content" : "light-content"} 
+      />
+      
       <Animated.View 
         style={[
           styles.headerCard,
           { 
-            backgroundColor: isDarkMode ? theme.surfaceVariant : '#fff',
+            backgroundColor: isDarkMode ? theme.surface : theme.card,
+            borderColor: theme.border,
+            shadowColor: theme.text,
             opacity: fadeAnim,
             transform: [{ translateY: slideAnim }]
           }
         ]}
       >
-        <View style={styles.headerIcon}>
+        <View style={[
+          styles.headerIcon, 
+          { backgroundColor: `${theme.primary}20` }
+        ]}>
           <Feather name="user-plus" size={40} color={theme.primary} />
         </View>
         <Text style={[styles.headerTitle, { color: theme.text }]}>Adicionar Novo Usuário</Text>
-        <Text style={[styles.headerSubtitle, { color: isDarkMode ? '#BBB' : '#666' }]}>
+        <Text style={[styles.headerSubtitle, { color: theme.textSecondary }]}>
           Preencha os campos abaixo para criar um novo usuário.
           Os campos marcados com * são obrigatórios.
         </Text>
@@ -202,7 +215,9 @@ export default function CreateUser({ navigation }: any) {
         style={[
           styles.formCard,
           { 
-            backgroundColor: isDarkMode ? theme.surfaceVariant : '#fff',
+            backgroundColor: isDarkMode ? theme.surface : theme.card,
+            borderColor: theme.border,
+            shadowColor: theme.text,
             opacity: fadeAnim,
             transform: [{ translateY: slideAnim }]
           }
@@ -221,6 +236,7 @@ export default function CreateUser({ navigation }: any) {
           value={user.username}
           onChangeText={text => setUser({...user, username: text})}
           error={validationErrors.username}
+          required
         />
         
         <Input
@@ -230,6 +246,7 @@ export default function CreateUser({ navigation }: any) {
           value={user.email}
           onChangeText={text => setUser({...user, email: text})}
           error={validationErrors.email}
+          required
         />
         
         <Input
@@ -240,6 +257,7 @@ export default function CreateUser({ navigation }: any) {
           onChangeText={text => setUser({...user, password: text})}
           error={validationErrors.password}
           helperText="Mínimo de 6 caracteres"
+          required
         />
         
         <Input
@@ -249,6 +267,7 @@ export default function CreateUser({ navigation }: any) {
           value={user.confirmPassword}
           onChangeText={text => setUser({...user, confirmPassword: text})}
           error={validationErrors.confirmPassword}
+          required
         />
         
         <Input
@@ -275,7 +294,9 @@ export default function CreateUser({ navigation }: any) {
         style={[
           styles.formCard,
           { 
-            backgroundColor: isDarkMode ? theme.surfaceVariant : '#fff',
+            backgroundColor: isDarkMode ? theme.surface : theme.card,
+            borderColor: theme.border,
+            shadowColor: theme.text,
             opacity: fadeAnim,
             transform: [{ translateY: slideAnim }]
           }
@@ -292,8 +313,8 @@ export default function CreateUser({ navigation }: any) {
         <View style={[
           styles.pickerContainer, 
           { 
-            backgroundColor: isDarkMode ? theme.surface : '#f9f9f9',
-            borderColor: theme.border,
+            backgroundColor: isDarkMode ? theme.surfaceVariant : theme.elevation2,
+            borderColor: theme.border
           }
         ]}>
           <Picker
@@ -314,7 +335,7 @@ export default function CreateUser({ navigation }: any) {
         </View>
         
         <View style={styles.roleBadgePreview}>
-          <Text style={[styles.previewLabel, { color: isDarkMode ? '#BBB' : '#666' }]}>
+          <Text style={[styles.previewLabel, { color: theme.textSecondary }]}>
             Preview do badge:
           </Text>
           <View style={[
@@ -325,10 +346,16 @@ export default function CreateUser({ navigation }: any) {
           </View>
         </View>
         
-        <View style={styles.switchContainer}>
+        <View style={[
+          styles.switchContainer, 
+          { 
+            backgroundColor: isDarkMode ? theme.surfaceVariant : theme.elevation2,
+            borderColor: theme.border
+          }
+        ]}>
           <View>
             <Text style={[styles.switchLabel, { color: theme.text }]}>Status da conta:</Text>
-            <Text style={[styles.switchDescription, { color: isDarkMode ? '#BBB' : '#666' }]}>
+            <Text style={[styles.switchDescription, { color: theme.textSecondary }]}>
               Quando desativada, a conta não poderá fazer login
             </Text>
           </View>
@@ -382,6 +409,7 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     padding: 16,
+    paddingBottom: 30,
   },
   headerCard: {
     borderRadius: 16,
@@ -393,12 +421,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+    borderWidth: 1,
   },
   headerIcon: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: 'rgba(66, 133, 244, 0.1)',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
@@ -423,6 +451,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+    borderWidth: 1,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -475,6 +504,7 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 8,
     marginTop: 8,
+    borderWidth: 1,
   },
   switchLabel: {
     fontSize: 14,

@@ -1,24 +1,48 @@
 // src/contexts/ThemeContext.tsx
 import React, { createContext, useState, useEffect, useContext, useRef } from 'react';
-import { Animated } from 'react-native';
+import { Animated, useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from './AuthContext';
 import api from '../services/api';
 
 export interface ThemeColors {
+  // Main colors
   primary: string;
+  primaryDark: string;
+  primaryLight: string;
   secondary: string;
+  secondaryDark: string;
+  secondaryLight: string;
+  
+  // Text and background
   text: string;
+  textSecondary: string;
+  textLight: string;
   background: string;
+  
+  // UI elements
   accent: string;
   card: string;
   border: string;
+  divider: string;
+  
+  // Status colors
   error: string;
   success: string;
+  warning: string;
+  info: string;
+  
+  // Component specific
   surface: string;
   surfaceVariant: string;
   disabled: string;
   placeholder: string;
+  
+  // Additional
+  elevation1: string;
+  elevation2: string;
+  elevation3: string;
+  transparent: string;
 }
 
 export interface Theme {
@@ -30,6 +54,7 @@ export interface Theme {
   background_color: string;
   accent_color: string;
   is_default: boolean;
+  description?: string;
 }
 
 export type ThemeContextData = {
@@ -37,145 +62,331 @@ export type ThemeContextData = {
   currentThemeName: string;
   isDarkMode: boolean;
   availableThemes: Theme[];
-  changeTheme: (themeName: string) => Promise<void>;
+  changeTheme: (themeName: string, saveToServer?: boolean) => Promise<void>;
   fetchThemes: () => Promise<void>;
   isChangingTheme: boolean;
   fadeAnim: Animated.Value;
+  toggleDarkMode: () => Promise<void>;
+  useSystemTheme: boolean;
+  setUseSystemTheme: (value: boolean) => Promise<void>;
 };
 
-// Temas padrão com descrições
-const defaultThemes = [
+// Modern theme palette with better color contrast and aesthetics
+const modernThemes: Theme[] = [
   {
     id: 1,
-    name: 'default',
-    primary_color: '#4285F4',
-    secondary_color: '#34A853',
-    text_color: '#202124',
+    name: 'blue',
+    description: 'Azul Moderno',
+    primary_color: '#2563EB', // Vibrant blue
+    secondary_color: '#3B82F6',
+    text_color: '#1F2937',
     background_color: '#FFFFFF',
-    accent_color: '#FBBC05',
+    accent_color: '#F59E0B',
     is_default: true
   },
   {
     id: 2,
     name: 'dark',
-    primary_color: '#BB86FC',
-    secondary_color: '#03DAC6',
-    text_color: '#FFFFFF',
-    background_color: '#121212',
-    accent_color: '#CF6679',
+    description: 'Escuro Elegante',
+    primary_color: '#6366F1', // Indigo
+    secondary_color: '#8B5CF6', // Purple
+    text_color: '#F9FAFB',
+    background_color: '#111827',
+    accent_color: '#F43F5E', // Rose
     is_default: false
   },
   {
     id: 3,
-    name: 'blue',
-    primary_color: '#1976D2',
-    secondary_color: '#64B5F6',
-    text_color: '#212121',
-    background_color: '#F5F5F5',
-    accent_color: '#FF4081',
+    name: 'green',
+    description: 'Verde Natureza',
+    primary_color: '#059669', // Emerald
+    secondary_color: '#10B981',
+    text_color: '#1F2937',
+    background_color: '#F9FAFB',
+    accent_color: '#F59E0B', // Amber
     is_default: false
   },
   {
     id: 4,
-    name: 'nature',
-    primary_color: '#388E3C',
-    secondary_color: '#8BC34A',
-    text_color: '#212121',
-    background_color: '#F1F8E9',
-    accent_color: '#FF9800',
+    name: 'purple',
+    description: 'Roxo Elegante',
+    primary_color: '#7C3AED', // Violet
+    secondary_color: '#8B5CF6',
+    text_color: '#1F2937',
+    background_color: '#F9FAFB',
+    accent_color: '#EC4899', // Pink
     is_default: false
   },
   {
     id: 5,
     name: 'sunset',
-    primary_color: '#E64A19',
-    secondary_color: '#FF5722',
-    text_color: '#212121',
-    background_color: '#FBE9E7',
-    accent_color: '#FFC107',
+    description: 'Pôr do Sol',
+    primary_color: '#DB2777', // Pink
+    secondary_color: '#EC4899',
+    text_color: '#1F2937',
+    background_color: '#F9FAFB',
+    accent_color: '#F59E0B', // Amber
     is_default: false
   },
   {
     id: 6,
     name: 'midnight',
-    primary_color: '#303F9F',
-    secondary_color: '#3F51B5',
-    text_color: '#FFFFFF',
-    background_color: '#0A1929',
-    accent_color: '#00BCD4',
+    description: 'Meia-noite',
+    primary_color: '#4F46E5', // Indigo
+    secondary_color: '#6366F1',
+    text_color: '#F9FAFB',
+    background_color: '#0F172A', // Slate
+    accent_color: '#14B8A6', // Teal
+    is_default: false
+  },
+  {
+    id: 7,
+    name: 'autumn',
+    description: 'Outono',
+    primary_color: '#B45309', // Amber
+    secondary_color: '#D97706',
+    text_color: '#1F2937',
+    background_color: '#F9FAFB',
+    accent_color: '#7C3AED', // Violet
+    is_default: false
+  },
+  {
+    id: 8,
+    name: 'ocean',
+    description: 'Oceano',
+    primary_color: '#0369A1', // Sky
+    secondary_color: '#0284C7',
+    text_color: '#F9FAFB',
+    background_color: '#082F49', // Deep Ocean
+    accent_color: '#06B6D4', // Cyan
     is_default: false
   }
 ];
 
-// Tema padrão (caso nenhum tema seja encontrado)
-const defaultColors: ThemeColors = {
-  primary: '#4285F4',
-  secondary: '#34A853',
-  text: '#202124',
+// Default light theme
+const defaultLightColors: ThemeColors = {
+  primary: '#2563EB',
+  primaryDark: '#1D4ED8',
+  primaryLight: '#60A5FA',
+  secondary: '#3B82F6',
+  secondaryDark: '#2563EB',
+  secondaryLight: '#93C5FD',
+  
+  text: '#1F2937',
+  textSecondary: '#4B5563',
+  textLight: '#9CA3AF',
   background: '#FFFFFF',
-  accent: '#FBBC05',
+  
+  accent: '#F59E0B',
   card: '#FFFFFF',
-  border: '#E1E1E1',
-  error: '#F44336',
-  success: '#4CAF50',
-  surface: '#F5F5F5',
-  surfaceVariant: '#EEEEEE',
-  disabled: '#BDBDBD',
-  placeholder: '#9E9E9E'
+  border: '#E5E7EB',
+  divider: '#E5E7EB',
+  
+  error: '#EF4444',
+  success: '#10B981',
+  warning: '#F59E0B',
+  info: '#3B82F6',
+  
+  surface: '#F9FAFB',
+  surfaceVariant: '#F3F4F6',
+  disabled: '#D1D5DB',
+  placeholder: '#9CA3AF',
+  
+  elevation1: '#FFFFFF',
+  elevation2: '#F9FAFB',
+  elevation3: '#F3F4F6',
+  transparent: 'transparent'
+};
+
+// Default dark theme
+const defaultDarkColors: ThemeColors = {
+  primary: '#6366F1',
+  primaryDark: '#4F46E5',
+  primaryLight: '#818CF8',
+  secondary: '#8B5CF6',
+  secondaryDark: '#7C3AED',
+  secondaryLight: '#A78BFA',
+  
+  text: '#F9FAFB',
+  textSecondary: '#E5E7EB',
+  textLight: '#D1D5DB',
+  background: '#111827',
+  
+  accent: '#F43F5E',
+  card: '#1F2937',
+  border: '#374151',
+  divider: '#374151',
+  
+  error: '#EF4444',
+  success: '#10B981',
+  warning: '#F59E0B',
+  info: '#3B82F6',
+  
+  surface: '#1F2937',
+  surfaceVariant: '#374151',
+  disabled: '#6B7280',
+  placeholder: '#9CA3AF',
+  
+  elevation1: '#1F2937',
+  elevation2: '#374151',
+  elevation3: '#4B5563',
+  transparent: 'transparent'
 };
 
 const ThemeContext = createContext<ThemeContextData>({} as ThemeContextData);
 
 export const ThemeProvider: React.FC<{children: React.ReactNode}> = ({ children }) => {
   const { signed, user } = useAuth();
-  const [theme, setTheme] = useState<ThemeColors>(defaultColors);
-  const [currentThemeName, setCurrentThemeName] = useState<string>('default');
-  const [availableThemes, setAvailableThemes] = useState<Theme[]>(defaultThemes);
+  const [theme, setTheme] = useState<ThemeColors>(defaultLightColors);
+  const [currentThemeName, setCurrentThemeName] = useState<string>('blue');
+  const [availableThemes, setAvailableThemes] = useState<Theme[]>(modernThemes);
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
   const [isChangingTheme, setIsChangingTheme] = useState<boolean>(false);
+  const [useSystemTheme, setUseSystemTheme] = useState<boolean>(true);
   const fadeAnim = useRef(new Animated.Value(1)).current;
+  const systemColorScheme = useColorScheme();
 
-  // Função para converter um tema do backend em cores para o app
-  const themeToColors = (theme: Theme): ThemeColors => {
-    const isDark = theme.name === 'dark' || 
+  // Function to convert a theme from the backend into a full color palette
+  const themeToColors = (theme: Theme, forceDark: boolean = false): ThemeColors => {
+    const isDark = forceDark || 
+                  theme.name === 'dark' || 
                   theme.name === 'midnight' || 
-                  theme.background_color.toLowerCase() === '#121212' ||
+                  theme.name === 'ocean' ||
+                  theme.background_color.toLowerCase() === '#111827' ||
                   theme.background_color.toLowerCase().startsWith('#0');
     
-    return {
-      primary: theme.primary_color,
-      secondary: theme.secondary_color,
-      text: theme.text_color,
-      background: theme.background_color,
-      accent: theme.accent_color,
-      card: isDark ? '#1E1E1E' : '#FFFFFF',
-      border: isDark ? '#333333' : '#E1E1E1',
-      error: '#F44336',
-      success: '#4CAF50',
-      surface: isDark ? '#242424' : '#F5F5F5',
-      surfaceVariant: isDark ? '#2C2C2C' : '#EEEEEE',
-      disabled: isDark ? '#666666' : '#BDBDBD',
-      placeholder: isDark ? '#888888' : '#9E9E9E'
-    };
+    // Derive a richer color palette from the basic theme colors
+    if (isDark) {
+      return {
+        primary: theme.primary_color,
+        primaryDark: adjustColor(theme.primary_color, -15),
+        primaryLight: adjustColor(theme.primary_color, 15),
+        secondary: theme.secondary_color,
+        secondaryDark: adjustColor(theme.secondary_color, -15),
+        secondaryLight: adjustColor(theme.secondary_color, 15),
+        
+        text: '#F9FAFB',
+        textSecondary: '#E5E7EB',
+        textLight: '#D1D5DB',
+        background: theme.background_color,
+        
+        accent: theme.accent_color,
+        card: '#1F2937',
+        border: '#374151',
+        divider: '#374151',
+        
+        error: '#EF4444',
+        success: '#10B981',
+        warning: '#F59E0B',
+        info: '#3B82F6',
+        
+        surface: '#1F2937',
+        surfaceVariant: '#374151',
+        disabled: '#6B7280',
+        placeholder: '#9CA3AF',
+        
+        elevation1: '#1F2937',
+        elevation2: '#374151',
+        elevation3: '#4B5563',
+        transparent: 'transparent'
+      };
+    } else {
+      return {
+        primary: theme.primary_color,
+        primaryDark: adjustColor(theme.primary_color, -15),
+        primaryLight: adjustColor(theme.primary_color, 15),
+        secondary: theme.secondary_color,
+        secondaryDark: adjustColor(theme.secondary_color, -15),
+        secondaryLight: adjustColor(theme.secondary_color, 15),
+        
+        text: theme.text_color,
+        textSecondary: '#4B5563',
+        textLight: '#9CA3AF',
+        background: theme.background_color,
+        
+        accent: theme.accent_color,
+        card: '#FFFFFF',
+        border: '#E5E7EB',
+        divider: '#E5E7EB',
+        
+        error: '#EF4444',
+        success: '#10B981',
+        warning: '#F59E0B',
+        info: '#3B82F6',
+        
+        surface: '#F9FAFB',
+        surfaceVariant: '#F3F4F6',
+        disabled: '#D1D5DB',
+        placeholder: '#9CA3AF',
+        
+        elevation1: '#FFFFFF',
+        elevation2: '#F9FAFB',
+        elevation3: '#F3F4F6',
+        transparent: 'transparent'
+      };
+    }
   };
 
-  // Carregar tema armazenado localmente
+  // Function to adjust color brightness (positive value lightens, negative darkens)
+  const adjustColor = (hex: string, percent: number): string => {
+    // Remove # if present
+    hex = hex.replace(/^\s*#|\s*$/g, '');
+
+    // Convert 3 digit hex to 6 digit
+    if(hex.length === 3) {
+      hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+    }
+    
+    // Parse the hex values
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+
+    // Adjust values
+    const adjustValue = (value: number): number => {
+      return Math.max(0, Math.min(255, Math.round(value * (1 + percent / 100))));
+    };
+
+    // Convert back to hex
+    const rr = adjustValue(r).toString(16).padStart(2, '0');
+    const gg = adjustValue(g).toString(16).padStart(2, '0');
+    const bb = adjustValue(b).toString(16).padStart(2, '0');
+
+    return `#${rr}${gg}${bb}`;
+  };
+
+  // Check for system theme and load stored theme on startup
   useEffect(() => {
-    async function loadStoredTheme() {
+    async function loadStoredThemePrefs() {
       try {
         const storedThemeName = await AsyncStorage.getItem('@App:theme');
-        if (storedThemeName) {
-          changeTheme(storedThemeName, false); // false para não salvar novamente no servidor
+        const storedUseSystem = await AsyncStorage.getItem('@App:useSystemTheme');
+        
+        if (storedUseSystem !== null) {
+          const useSystem = storedUseSystem === 'true';
+          setUseSystemTheme(useSystem);
+          
+          if (useSystem && systemColorScheme) {
+            // Apply system theme preference
+            setIsDarkMode(systemColorScheme === 'dark');
+            applyThemeColors(storedThemeName || 'blue', systemColorScheme === 'dark');
+          } else if (storedThemeName) {
+            // Apply stored theme
+            applyThemeColors(storedThemeName);
+          }
+        } else if (storedThemeName) {
+          // Legacy: just apply stored theme
+          applyThemeColors(storedThemeName);
         }
       } catch (error) {
-        console.error('Erro ao carregar tema:', error);
+        console.error('Error loading theme preferences:', error);
       }
     }
 
-    loadStoredTheme();
-  }, []);
+    loadStoredThemePrefs();
+  }, [systemColorScheme]);
 
-  // Quando o usuário faz login, buscar temas disponíveis e tentar carregar o tema do usuário
+  // When user logs in, fetch themes and try to load user theme
   useEffect(() => {
     if (signed) {
       fetchThemes();
@@ -185,33 +396,78 @@ export const ThemeProvider: React.FC<{children: React.ReactNode}> = ({ children 
     }
   }, [signed, user?.id]);
 
-  // Carregar tema do usuário do backend
+  // Apply theme colors without animation or saving
+  const applyThemeColors = (themeName: string, forceDark: boolean = false) => {
+    // Find the theme by name
+    const selectedTheme = availableThemes.find(t => t.name === themeName) || 
+                          modernThemes.find(t => t.name === themeName);
+    
+    if (selectedTheme) {
+      // Handle the case where description might be undefined
+      const themeWithDefaults = {
+        ...selectedTheme,
+        description: selectedTheme.description || selectedTheme.name // Provide default if undefined
+      };
+      
+      // Convert theme to colors
+      const newColors = themeToColors(themeWithDefaults, forceDark);
+      setTheme(newColors);
+      setCurrentThemeName(themeName);
+      
+      // Set dark mode based on theme or force parameter
+      const isDark = forceDark || 
+                     themeName === 'dark' || 
+                     themeName === 'midnight' || 
+                     themeName === 'ocean' ||
+                     selectedTheme.background_color.toLowerCase() === '#111827' ||
+                     selectedTheme.background_color.toLowerCase().startsWith('#0');
+      
+      setIsDarkMode(isDark);
+    }
+  };
+
+  // Load user theme from backend
   const loadUserTheme = async () => {
     try {
       const response = await api.get('/api/profile');
       if (response.data?.profile?.theme) {
-        // Usar o tema do perfil do usuário
-        changeTheme(response.data.profile.theme, false);
+        if (!useSystemTheme) {
+          // Only use the user theme if not using system theme
+          changeTheme(response.data.profile.theme, false);
+        } else {
+          // Just store the theme name for reference
+          setCurrentThemeName(response.data.profile.theme);
+        }
       }
     } catch (error) {
-      console.error('Erro ao carregar tema do usuário:', error);
+      console.error('Error loading user theme:', error);
     }
   };
 
-  // Função para buscar temas disponíveis
+  // Function to fetch available themes
   const fetchThemes = async () => {
     try {
       const response = await api.get('/api/themes');
       if (response.data && response.data.themes && response.data.themes.length > 0) {
-        setAvailableThemes(response.data.themes);
+        // Merge with our modern themes, preserving ours as defaults
+        const mergedThemes = [...modernThemes];
+        
+        // Add server themes that don't exist in our modern themes
+        response.data.themes.forEach((serverTheme: Theme) => {
+          const exists = mergedThemes.some(t => t.name === serverTheme.name);
+          if (!exists) {
+            mergedThemes.push(serverTheme);
+          }
+        });
+        
+        setAvailableThemes(mergedThemes);
       }
     } catch (error) {
-      console.error('Erro ao carregar temas:', error);
-      // Manter os temas padrão em caso de erro
+      console.error('Error fetching themes:', error);
     }
   };
 
-  // Função para animar a transição de temas
+  // Function to animate theme changes
   const animateThemeChange = (callback: () => void) => {
     // Fade out
     Animated.timing(fadeAnim, {
@@ -219,7 +475,7 @@ export const ThemeProvider: React.FC<{children: React.ReactNode}> = ({ children 
       duration: 250,
       useNativeDriver: true,
     }).start(() => {
-      // Executar a mudança de tema
+      // Execute theme change
       callback();
       
       // Fade in
@@ -233,40 +489,78 @@ export const ThemeProvider: React.FC<{children: React.ReactNode}> = ({ children 
     });
   };
 
-  // Função para mudar o tema com animação e salvamento no servidor se necessário
+  // Change theme with animation and optional server saving
   const changeTheme = async (themeName: string, saveToServer = true) => {
     try {
       setIsChangingTheme(true);
       
-      // Animar a transição
+      // Animate the transition
       animateThemeChange(() => {
-        // Procurar o tema pelo nome
-        const selectedTheme = availableThemes.find(t => t.name === themeName) || defaultThemes.find(t => t.name === themeName);
-        
-        if (selectedTheme) {
-          // Converter tema para cores
-          const newColors = themeToColors(selectedTheme);
-          setTheme(newColors);
-          setCurrentThemeName(themeName);
-          setIsDarkMode(
-            themeName === 'dark' || 
-            themeName === 'midnight' || 
-            selectedTheme.background_color.toLowerCase() === '#121212' ||
-            selectedTheme.background_color.toLowerCase().startsWith('#0')
-          );
-        }
+        applyThemeColors(themeName);
       });
       
-      // Salvar tema localmente
+      // Save theme locally
       await AsyncStorage.setItem('@App:theme', themeName);
       
-      // Se estiver autenticado e for solicitado, salvar tema no servidor
+      // Set to not use system theme since user explicitly changed theme
+      if (saveToServer) {
+        setUseSystemTheme(false);
+        await AsyncStorage.setItem('@App:useSystemTheme', 'false');
+      }
+      
+      // Save to server if requested and user is signed in
       if (signed && saveToServer) {
         await api.put('/api/profile', { theme: themeName });
       }
     } catch (error) {
-      console.error('Erro ao alterar tema:', error);
+      console.error('Error changing theme:', error);
       setIsChangingTheme(false);
+    }
+  };
+
+  // Toggle between light and dark versions of current theme
+  const toggleDarkMode = async () => {
+    try {
+      setIsChangingTheme(true);
+      
+      // Animate the transition
+      animateThemeChange(() => {
+        // Toggle dark mode
+        const newIsDark = !isDarkMode;
+        setIsDarkMode(newIsDark);
+        
+        // Apply the current theme with forced dark/light
+        const selectedTheme = availableThemes.find(t => t.name === currentThemeName) || 
+                              modernThemes.find(t => t.name === currentThemeName);
+        
+        if (selectedTheme) {
+          const newColors = themeToColors(selectedTheme, newIsDark);
+          setTheme(newColors);
+        }
+      });
+      
+      // Set to not use system theme
+      setUseSystemTheme(false);
+      await AsyncStorage.setItem('@App:useSystemTheme', 'false');
+      
+    } catch (error) {
+      console.error('Error toggling dark mode:', error);
+      setIsChangingTheme(false);
+    }
+  };
+
+  // Function to toggle system theme usage
+  const setSystemThemeUsage = async (value: boolean) => {
+    try {
+      setUseSystemTheme(value);
+      await AsyncStorage.setItem('@App:useSystemTheme', value.toString());
+      
+      if (value && systemColorScheme) {
+        // Apply system preference immediately
+        applyThemeColors(currentThemeName, systemColorScheme === 'dark');
+      }
+    } catch (error) {
+      console.error('Error setting system theme usage:', error);
     }
   };
 
@@ -279,7 +573,10 @@ export const ThemeProvider: React.FC<{children: React.ReactNode}> = ({ children 
       changeTheme,
       fetchThemes,
       isChangingTheme,
-      fadeAnim
+      fadeAnim,
+      toggleDarkMode,
+      useSystemTheme,
+      setUseSystemTheme: setSystemThemeUsage
     }}>
       {children}
     </ThemeContext.Provider>

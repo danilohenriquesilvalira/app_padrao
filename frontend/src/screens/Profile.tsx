@@ -1,3 +1,4 @@
+// src/screens/Profile.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -9,7 +10,8 @@ import {
   Alert,
   ActivityIndicator,
   Dimensions,
-  Animated
+  Animated,
+  StatusBar
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Feather } from '@expo/vector-icons';
@@ -211,6 +213,11 @@ export default function Profile() {
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: theme.background }]}>
+      <StatusBar
+        backgroundColor={isDarkMode ? theme.background : theme.primary}
+        barStyle={isDarkMode ? "light-content" : "light-content"}
+      />
+      
       {/* Header com animação */}
       <Animated.View style={[
         styles.header, 
@@ -383,7 +390,7 @@ export default function Profile() {
         >
           {availableThemes.map((themeOption) => (
             <TouchableOpacity
-              key={themeOption.id}
+              key={`theme-${themeOption.id}`} // Usando uma chave única com prefixo
               style={[
                 styles.themeCard,
                 {
@@ -416,9 +423,17 @@ export default function Profile() {
                 </View>
               </View>
               
-              <View style={styles.themeInfoContainer}>
-                <Text style={[styles.themeName, { color: themeOption.text_color }]}>
-                  {themeOption.name.charAt(0).toUpperCase() + themeOption.name.slice(1)}
+              <View style={[
+                styles.themeInfoContainer, 
+                { backgroundColor: themeOption.name === 'dark' || themeOption.name === 'midnight' || themeOption.name === 'ocean' ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.85)' }
+              ]}>
+                <Text style={[
+                  styles.themeName, 
+                  { 
+                    color: themeOption.name === 'dark' || themeOption.name === 'midnight' || themeOption.name === 'ocean' ? '#fff' : themeOption.text_color 
+                  }
+                ]}>
+                  {themeOption.description || themeOption.name.charAt(0).toUpperCase() + themeOption.name.slice(1)}
                 </Text>
                 
                 {currentThemeName === themeOption.name && (
@@ -705,10 +720,11 @@ const styles = StyleSheet.create({
   },
   themeInfoContainer: {
     padding: 12,
-    backgroundColor: 'rgba(0,0,0,0.05)',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.05)',
   },
   themeName: {
     fontWeight: 'bold',
