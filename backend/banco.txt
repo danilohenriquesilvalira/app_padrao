@@ -1,0 +1,19 @@
+-- Execute como superusuário do PostgreSQL
+CREATE DATABASE app_padrao;
+
+-- Conecte-se ao banco
+\c app_padrao
+
+-- Crie a tabela de usuários
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    email VARCHAR(100) NOT NULL UNIQUE,
+    password VARCHAR(200) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP
+);
+
+-- Índices para otimização
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_username ON users(username);
