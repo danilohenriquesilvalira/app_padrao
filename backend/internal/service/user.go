@@ -4,6 +4,8 @@ package service
 import (
 	"app_padrao/internal/domain"
 	"app_padrao/pkg/jwt"
+	"log"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -77,11 +79,22 @@ func (s *UserService) Login(email, password string) (string, domain.User, error)
 		return "", domain.User{}, domain.ErrInvalidCredentials
 	}
 
+	// Atualizar last_login
+	err = s.repo.UpdateLastLogin(user.ID)
+	if err != nil {
+		log.Printf("Erro ao atualizar last_login: %v", err)
+		// Não falhar o login por causa disso
+	}
+
 	// Gerar token JWT
 	token, err := jwt.GenerateToken(user.ID, s.jwtSecretKey, s.expirationHrs)
 	if err != nil {
 		return "", domain.User{}, err
 	}
+
+	// Atualizar LastLogin no objeto para retornar ao frontend
+	currentTime := time.Now()
+	user.LastLogin = currentTime.Format(time.RFC3339)
 
 	// Não retornar a senha
 	user.Password = ""

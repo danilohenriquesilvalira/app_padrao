@@ -5,7 +5,9 @@ import (
 	"app_padrao/internal/domain"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log"
+	"strings"
 	"time"
 )
 
@@ -99,9 +101,10 @@ func (r *UserRepository) GetByID(id int) (domain.User, error) {
 func (r *UserRepository) GetByEmail(email string) (domain.User, error) {
 	var user domain.User
 	var fullName, phone sql.NullString
+	var lastLogin sql.NullTime
 
 	query := `
-        SELECT id, username, email, password, role, is_active, full_name, phone
+        SELECT id, username, email, password, role, is_active, full_name, phone, last_login
         FROM users
         WHERE email = $1
     `
@@ -115,6 +118,7 @@ func (r *UserRepository) GetByEmail(email string) (domain.User, error) {
 		&user.IsActive,
 		&fullName,
 		&phone,
+		&lastLogin,
 	)
 
 	if err != nil {
@@ -138,27 +142,81 @@ func (r *UserRepository) GetByEmail(email string) (domain.User, error) {
 		user.Phone = ""
 	}
 
+	if lastLogin.Valid {
+		user.LastLogin = lastLogin.Time.Format(time.RFC3339)
+	} else {
+		user.LastLogin = ""
+	}
+
 	return user, nil
 }
 
 func (r *UserRepository) Update(user domain.User) error {
-	query := `
-        UPDATE users
-        SET username = $1, email = $2, role = $3, is_active = $4, full_name = $5, phone = $6
-        WHERE id = $7
-    `
+	// Verificar se o usuário existe primeiro
+	_, err := r.GetByID(user.ID)
+	if err != nil {
+		if errors.Is(err, domain.ErrUserNotFound) {
+			return domain.ErrUserNotFound
+		}
+		return err
+	}
 
-	result, err := r.db.Exec(
-		query,
-		user.Username,
-		user.Email,
-		user.Role,
-		user.IsActive,
-		user.FullName,
-		user.Phone,
-		user.ID,
-	)
+	// Construir query dinamicamente com base nos campos fornecidos
+	params := []interface{}{}
+	setClause := []string{}
+	paramIndex := 1
 
+	if user.Username != "" {
+		setClause = append(setClause, fmt.Sprintf("username = $%d", paramIndex))
+		params = append(params, user.Username)
+		paramIndex++
+	}
+
+	if user.Email != "" {
+		setClause = append(setClause, fmt.Sprintf("email = $%d", paramIndex))
+		params = append(params, user.Email)
+		paramIndex++
+	}
+
+	if user.Role != "" {
+		setClause = append(setClause, fmt.Sprintf("role = $%d", paramIndex))
+		params = append(params, user.Role)
+		paramIndex++
+	}
+
+	// is_active é boolean, então sempre atualizamos
+	setClause = append(setClause, fmt.Sprintf("is_active = $%d", paramIndex))
+	params = append(params, user.IsActive)
+	paramIndex++
+
+	if user.FullName != "" {
+		setClause = append(setClause, fmt.Sprintf("full_name = $%d", paramIndex))
+		params = append(params, user.FullName)
+		paramIndex++
+	}
+
+	if user.Phone != "" {
+		setClause = append(setClause, fmt.Sprintf("phone = $%d", paramIndex))
+		params = append(params, user.Phone)
+		paramIndex++
+	}
+
+	// Atualizar updated_at
+	setClause = append(setClause, fmt.Sprintf("updated_at = $%d", paramIndex))
+	params = append(params, time.Now())
+	paramIndex++
+
+	// Adicionar o ID como último parâmetro
+	params = append(params, user.ID)
+
+	// Se não há colunas para atualizar, retornar sem fazer nada
+	if len(setClause) == 0 {
+		return nil
+	}
+
+	query := fmt.Sprintf("UPDATE users SET %s WHERE id = $%d", strings.Join(setClause, ", "), paramIndex)
+
+	result, err := r.db.Exec(query, params...)
 	if err != nil {
 		log.Printf("Erro ao atualizar usuário: %v", err)
 		return err
@@ -172,6 +230,22 @@ func (r *UserRepository) Update(user domain.User) error {
 
 	if rowsAffected == 0 {
 		return domain.ErrUserNotFound
+	}
+
+	return nil
+}
+
+func (r *UserRepository) UpdateLastLogin(userID int) error {
+	query := `
+        UPDATE users
+        SET last_login = NOW()
+        WHERE id = $1
+    `
+
+	_, err := r.db.Exec(query, userID)
+	if err != nil {
+		log.Printf("Erro ao atualizar last_login: %v", err)
+		return err
 	}
 
 	return nil

@@ -13,7 +13,6 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Feather } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 
 import { useAuth } from '../contexts/AuthContext';
@@ -35,12 +34,12 @@ const windowWidth = Dimensions.get('window').width;
 
 export default function ProfileDetails() {
   const { user, updateProfile } = useAuth();
-  const { 
-    theme, 
-    currentThemeName, 
-    availableThemes, 
-    changeTheme, 
-    isDarkMode 
+  const {
+    theme,
+    currentThemeName,
+    availableThemes,
+    changeTheme,
+    isDarkMode
   } = useTheme();
   const navigation = useNavigation();
   const [loading, setLoading] = useState(false);
@@ -58,6 +57,17 @@ export default function ProfileDetails() {
     bio: ''
   });
 
+  // Quando o usuário muda no contexto, atualiza o estado local para refletir as novas informações
+  useEffect(() => {
+    if (user) {
+      setForm(prev => ({
+        ...prev,
+        fullName: user.fullName,
+        phone: user.phone
+      }));
+    }
+  }, [user]);
+
   useEffect(() => {
     loadProfile();
   }, []);
@@ -66,7 +76,6 @@ export default function ProfileDetails() {
     try {
       setLoading(true);
       const response = await api.get('/api/profile');
-      
       if (response.data.profile) {
         setProfile({
           bio: response.data.profile.bio || '',
@@ -76,18 +85,16 @@ export default function ProfileDetails() {
           language: response.data.profile.language || 'pt_BR',
           department: response.data.profile.department || ''
         });
-        
+        // Atualiza também o campo bio do form
         setForm(prev => ({
           ...prev,
-          bio: response.data.profile.bio || '',
-          fullName: user?.fullName || '',
-          phone: user?.phone || ''
+          bio: response.data.profile.bio || ''
         }));
       }
     } catch (error) {
       console.error('Erro ao carregar perfil:', error);
       Alert.alert(
-        'Erro', 
+        'Erro',
         'Não foi possível carregar seu perfil. Tente novamente mais tarde.'
       );
     } finally {
@@ -98,13 +105,11 @@ export default function ProfileDetails() {
   const handleUpdateProfile = async () => {
     try {
       setLoading(true);
-      
-      // Atualizar informações básicas do usuário
+      // Atualizar informações básicas do usuário: envia o campo "full_name" (snake_case) para o backend
       await updateProfile({
-        fullName: form.fullName,
+        full_name: form.fullName,
         phone: form.phone
       });
-      
       // Atualizar perfil estendido
       await api.put('/api/profile', {
         bio: form.bio,
@@ -112,7 +117,6 @@ export default function ProfileDetails() {
         font_size: profile.font_size || 'medium',
         language: profile.language || 'pt_BR'
       });
-      
       Alert.alert('Sucesso', 'Perfil atualizado com sucesso');
     } catch (error) {
       console.error('Erro ao atualizar perfil:', error);
@@ -124,19 +128,16 @@ export default function ProfileDetails() {
 
   const handlePickImage = async () => {
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    
     if (!permissionResult.granted) {
       Alert.alert('Permissão necessária', 'Precisamos de permissão para acessar suas fotos');
       return;
     }
-    
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
     });
-    
     if (!result.canceled) {
       uploadImage(result.assets[0].uri);
     }
@@ -144,33 +145,27 @@ export default function ProfileDetails() {
 
   const uploadImage = async (uri: string) => {
     setImageLoading(true);
-    
     try {
-      // Criar form data para upload
       const formData = new FormData();
       const filename = uri.split('/').pop() || 'photo.jpg';
       const match = /\.(\w+)$/.exec(filename);
       const type = match ? `image/${match[1]}` : 'image/jpeg';
-      
-      // @ts-ignore - Necessário para formData com React Native
+      // @ts-ignore
       formData.append('avatar', {
         uri,
         name: filename,
         type
       });
-      
       const response = await api.post('/api/profile/avatar', formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         }
       });
-      
       if (response.data.avatar_url) {
         setProfile(prev => ({
           ...prev,
           avatar_url: response.data.avatar_url
         }));
-        
         Alert.alert('Sucesso', 'Foto de perfil atualizada');
       }
     } catch (error) {
@@ -187,8 +182,6 @@ export default function ProfileDetails() {
         ...prev,
         theme: themeName
       }));
-      
-      // Usar o context de tema para mudar o tema globalmente
       await changeTheme(themeName);
     } catch (error) {
       console.error('Erro ao alterar tema:', error);
@@ -207,7 +200,7 @@ export default function ProfileDetails() {
   return (
     <ScrollView style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={[styles.header, { backgroundColor: theme.surface }]}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.avatarContainer}
           onPress={handlePickImage}
           disabled={imageLoading}
@@ -217,12 +210,12 @@ export default function ProfileDetails() {
           ) : (
             <>
               {profile.avatar_url ? (
-                <Image 
-                  source={{ 
-                    uri: profile.avatar_url.startsWith('http') 
-                      ? profile.avatar_url 
-                      : `${api.defaults.baseURL}${profile.avatar_url}` 
-                  }} 
+                <Image
+                  source={{
+                    uri: profile.avatar_url.startsWith('http')
+                      ? profile.avatar_url
+                      : `${api.defaults.baseURL}${profile.avatar_url}`
+                  }}
                   style={styles.avatar}
                   onError={() => {
                     setProfile(prev => ({ ...prev, avatar_url: null }));
@@ -239,7 +232,6 @@ export default function ProfileDetails() {
             </>
           )}
         </TouchableOpacity>
-        
         <Text style={[styles.username, { color: theme.text }]}>
           {user?.username || 'Usuário'}
         </Text>
@@ -250,7 +242,6 @@ export default function ProfileDetails() {
           <Text style={styles.roleText}>{user?.role || 'user'}</Text>
         </View>
       </View>
-      
       <View style={[styles.section, { backgroundColor: theme.surface }]}>
         <View style={styles.sectionHeader}>
           <Feather name="user" size={20} color={theme.primary} />
@@ -258,32 +249,29 @@ export default function ProfileDetails() {
             Informações Pessoais
           </Text>
         </View>
-        
         <Input
           icon="user"
           label="Nome Completo"
           placeholder="Seu nome completo"
           value={form.fullName}
-          onChangeText={(text) => setForm({...form, fullName: text})}
+          onChangeText={(text) => setForm({ ...form, fullName: text })}
           helperText="Como você gostaria de ser chamado"
         />
-        
         <Input
           icon="phone"
           label="Telefone"
           placeholder="Seu número de telefone"
           value={form.phone}
-          onChangeText={(text) => setForm({...form, phone: text})}
+          onChangeText={(text) => setForm({ ...form, phone: text })}
           keyboardType="phone-pad"
           helperText="Opcional, para contato"
         />
-        
         <Input
           icon="file-text"
           label="Biografia"
           placeholder="Conte um pouco sobre você"
           value={form.bio}
-          onChangeText={(text) => setForm({...form, bio: text})}
+          onChangeText={(text) => setForm({ ...form, bio: text })}
           multiline
           numberOfLines={4}
           textAlignVertical="top"
@@ -291,7 +279,6 @@ export default function ProfileDetails() {
           helperText="Uma breve descrição sobre você"
         />
       </View>
-      
       <View style={[styles.section, { backgroundColor: theme.surface }]}>
         <View style={styles.sectionHeader}>
           <Feather name="droplet" size={20} color={theme.primary} />
@@ -299,36 +286,33 @@ export default function ProfileDetails() {
             Temas
           </Text>
         </View>
-        
         <Text style={[styles.themesDescription, { color: isDarkMode ? '#BBB' : '#666' }]}>
           Escolha um tema para personalizar a aparência do aplicativo
         </Text>
-        
         <View style={styles.themeGrid}>
           {availableThemes.map((themeOption) => (
             <TouchableOpacity
               key={themeOption.id}
               style={[
                 styles.themeItem,
-                { 
+                {
                   backgroundColor: themeOption.background_color,
-                  borderColor: currentThemeName === themeOption.name 
-                    ? themeOption.accent_color 
-                    : 'transparent',
+                  borderColor:
+                    currentThemeName === themeOption.name ? themeOption.accent_color : 'transparent',
                   width: (windowWidth - 60) / 2,
                 }
               ]}
               onPress={() => handleChangeTheme(themeOption.name)}
             >
-              <View 
+              <View
                 style={[
-                  styles.themeColorPreview, 
+                  styles.themeColorPreview,
                   { backgroundColor: themeOption.primary_color }
-                ]} 
+                ]}
               />
-              <Text 
+              <Text
                 style={[
-                  styles.themeText, 
+                  styles.themeText,
                   { color: themeOption.text_color }
                 ]}
               >
@@ -336,18 +320,13 @@ export default function ProfileDetails() {
               </Text>
               {currentThemeName === themeOption.name && (
                 <View style={styles.themeSelectedIndicator}>
-                  <Feather 
-                    name="check-circle" 
-                    size={20} 
-                    color={themeOption.primary_color} 
-                  />
+                  <Feather name="check-circle" size={20} color={themeOption.primary_color} />
                 </View>
               )}
             </TouchableOpacity>
           ))}
         </View>
       </View>
-      
       <View style={[styles.section, { backgroundColor: theme.surface }]}>
         <View style={styles.sectionHeader}>
           <Feather name="settings" size={20} color={theme.primary} />
@@ -355,8 +334,7 @@ export default function ProfileDetails() {
             Preferências
           </Text>
         </View>
-        
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[
             styles.preferencesButton,
             { backgroundColor: isDarkMode ? theme.surfaceVariant : '#f9f9f9' }
@@ -372,14 +350,12 @@ export default function ProfileDetails() {
           <Feather name="chevron-right" size={20} color={theme.primary} />
         </TouchableOpacity>
       </View>
-      
-      <Button 
-        title="Salvar Alterações" 
-        onPress={handleUpdateProfile} 
+      <Button
+        title="Salvar Alterações"
+        onPress={handleUpdateProfile}
         loading={loading}
         icon={<Feather name="save" size={18} color="#FFF" />}
       />
-      
       <View style={styles.footer} />
     </ScrollView>
   );
@@ -482,17 +458,13 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginLeft: 8,
   },
-  themesDescription: {
-    fontSize: 14,
-    marginBottom: 15,
-  },
   bioInput: {
     height: 100,
     textAlignVertical: 'top',
     paddingTop: 10,
   },
-  themesContainer: {
-    flexDirection: 'row',
+  themesDescription: {
+    fontSize: 14,
     marginBottom: 15,
   },
   themeGrid: {
@@ -527,17 +499,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 8,
     right: 8,
-  },
-  themePreview: {
-    marginTop: 10,
-    marginBottom: 5,
-  },
-  themePreviewTitle: {
-    fontSize: 14,
-    marginBottom: 10,
-  },
-  themePreviewContent: {
-    alignItems: 'center',
   },
   preferencesButton: {
     flexDirection: 'row',

@@ -105,6 +105,8 @@ func (h *ProfileHandler) UpdateProfile(c *gin.Context) {
 		FontSize                string          `json:"font_size"`
 		Language                string          `json:"language"`
 		NotificationPreferences map[string]bool `json:"notification_preferences"`
+		FullName                string          `json:"full_name"` // Adicionado
+		Phone                   string          `json:"phone"`     // Adicionado
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -154,9 +156,41 @@ func (h *ProfileHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 
+	// ADICIONADO: Atualizar campos do usuário se fornecidos
+	if input.FullName != "" || input.Phone != "" {
+		// Carregar usuário atual
+		user, err := h.userService.GetByID(userID.(int))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Falha ao carregar usuário: %v", err)})
+			return
+		}
+
+		// Atualizar campos permitidos
+		if input.FullName != "" {
+			user.FullName = input.FullName
+		}
+		if input.Phone != "" {
+			user.Phone = input.Phone
+		}
+
+		err = h.userService.Update(user)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Falha ao atualizar usuário: %v", err)})
+			return
+		}
+	}
+
+	// Buscar usuário atualizado para retornar
+	user, err := h.userService.GetByID(userID.(int))
+	if err != nil {
+		// Não falhar por causa disso
+		log.Printf("Erro ao buscar usuário atualizado: %v", err)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Perfil atualizado com sucesso",
 		"profile": profile,
+		"user":    user,
 	})
 }
 

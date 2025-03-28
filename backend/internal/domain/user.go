@@ -23,6 +23,7 @@ type UserRepository interface {
 	Delete(id int) error
 	List(page, pageSize int) ([]User, int, error)
 	HasPermission(userID int, permissionCode string) (bool, error)
+	UpdateLastLogin(userID int) error // Novo método
 }
 
 type UserService interface {

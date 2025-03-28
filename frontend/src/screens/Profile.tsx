@@ -29,7 +29,8 @@ export default function Profile() {
   const handleUpdateProfile = async () => {
     try {
       setLoading(true);
-      await updateProfile(form);
+      // Corrigido: Enviar o campo com chave "full_name"
+      await updateProfile({ full_name: form.fullName, phone: form.phone });
       Alert.alert('Sucesso', 'Perfil atualizado com sucesso');
     } catch (error) {
       Alert.alert('Erro', 'Falha ao atualizar perfil');
@@ -66,13 +67,13 @@ export default function Profile() {
       <Input
         placeholder="Nome Completo"
         value={form.fullName}
-        onChangeText={(text) => setForm({...form, fullName: text})}
+        onChangeText={(text) => setForm({ ...form, fullName: text })}
       />
       
       <Input
         placeholder="Telefone"
         value={form.phone}
-        onChangeText={(text) => setForm({...form, phone: text})}
+        onChangeText={(text) => setForm({ ...form, phone: text })}
         keyboardType="phone-pad"
       />
       
