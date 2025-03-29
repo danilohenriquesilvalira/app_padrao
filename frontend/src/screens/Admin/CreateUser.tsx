@@ -12,7 +12,8 @@ import {
   TouchableOpacity,
   Dimensions,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  SafeAreaView
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { Feather } from '@expo/vector-icons';
@@ -21,7 +22,7 @@ import Button from '../../components/Button';
 import api from '../../services/api';
 import { useTheme } from '../../contexts/ThemeContext';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
 export default function CreateUser({ navigation }: any) {
   const { theme, isDarkMode } = useTheme();
@@ -202,9 +203,6 @@ export default function CreateUser({ navigation }: any) {
         full_name: user.fullName,
         phone: user.phone
       };
-      
-      // Remove a confirmação de senha antes de enviar para a API
-      // (isso já é feito ao usar o objeto userData)
       
       await api.post('/api/admin/users', userData);
       
@@ -512,64 +510,73 @@ export default function CreateUser({ navigation }: any) {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
-    >
-      <ScrollView 
-        style={[styles.container, { backgroundColor: isDarkMode ? theme.background : '#F5F5F5' }]}
-        contentContainerStyle={styles.contentContainer}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled" // Importante: Impede que o scroll feche o teclado
+    <SafeAreaView style={{ flex: 1, backgroundColor: isDarkMode ? theme.background : '#F5F5F5' }}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
       >
-        <StatusBar 
-          backgroundColor={theme.primary}
-          barStyle="light-content" 
-        />
-        
-        <Animated.View style={[
-          styles.headerCard,
-          { 
-            backgroundColor: isDarkMode ? theme.surface : '#FFFFFF',
-            borderColor: isDarkMode ? theme.border : '#DDDDDD',
-            opacity: fadeAnim,
-            transform: [{ translateY: slideAnim }]
-          }
-        ]}>
-          <View style={[
-            styles.headerIcon,
-            { backgroundColor: `${theme.primary}20` }
-          ]}>
-            <Feather name="user-plus" size={40} color={theme.primary} />
-          </View>
-          <Text style={[
-            styles.headerTitle,
-            { color: theme.text }
-          ]}>
-            Adicionar Novo Usuário
-          </Text>
-          <Text style={[
-            styles.headerSubtitle,
-            { color: isDarkMode ? theme.textLight : '#555555' }
-          ]}>
-            Preencha as informações para criar um novo usuário no sistema
-          </Text>
+        <ScrollView 
+          style={[styles.container, { backgroundColor: isDarkMode ? theme.background : '#F5F5F5' }]}
+          contentContainerStyle={styles.contentContainer}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <StatusBar 
+            backgroundColor={theme.primary}
+            barStyle="light-content" 
+          />
           
-          {/* Step indicator */}
-          <StepIndicator />
-        </Animated.View>
-        
-        <Animated.View style={{
-          opacity: fadeAnim,
-          transform: [{ translateX: slideFormAnim }]
-        }}>
-          {formStep === 1 ? renderBasicInfoForm() : renderAdditionalInfoForm()}
-        </Animated.View>
-        
-        <View style={styles.footer} />
-      </ScrollView>
-    </KeyboardAvoidingView>
+          {/* Container para o cabeçalho com espaço amplo */}
+          <View style={styles.headerCardWrapper}>
+            <Animated.View style={[
+              styles.headerCard,
+              { 
+                backgroundColor: isDarkMode ? theme.surface : '#FFFFFF',
+                borderColor: isDarkMode ? theme.border : '#DDDDDD',
+                opacity: fadeAnim,
+                transform: [{ translateY: slideAnim }],
+              }
+            ]}>
+              <View style={[
+                styles.headerIcon,
+                { backgroundColor: `${theme.primary}20` }
+              ]}>
+                <Feather name="user-plus" size={40} color={theme.primary} />
+              </View>
+              <Text style={[
+                styles.headerTitle,
+                { color: theme.text }
+              ]}>
+                Adicionar Novo Usuário
+              </Text>
+              <Text style={[
+                styles.headerSubtitle,
+                { color: isDarkMode ? theme.textLight : '#555555' }
+              ]}>
+                Preencha as informações para criar um novo usuário no sistema
+              </Text>
+              
+              {/* Step indicator */}
+              <StepIndicator />
+            </Animated.View>
+          </View>
+          
+          {/* Espaçador para garantir separação */}
+          <View style={styles.spacer} />
+          
+          {/* Container do formulário */}
+          <Animated.View style={{
+            opacity: fadeAnim,
+            transform: [{ translateX: slideFormAnim }],
+          }}>
+            {formStep === 1 ? renderBasicInfoForm() : renderAdditionalInfoForm()}
+          </Animated.View>
+          
+          <View style={styles.footer} />
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
@@ -580,17 +587,24 @@ const styles = StyleSheet.create({
   contentContainer: {
     padding: 16,
     paddingBottom: 30,
+    paddingTop: 10,
+  },
+  headerCardWrapper: {
+    // Container separado para o card de cabeçalho
+    paddingVertical: 20,
+    marginBottom: 40, // Espaço generoso abaixo do wrapper
+    position: 'relative',
+    zIndex: 10, // Garante que fique acima de outros elementos
   },
   headerCard: {
     borderRadius: 16,
     padding: 24,
-    marginBottom: 16,
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 5,
     borderWidth: 1,
   },
   headerIcon: {
@@ -613,10 +627,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginBottom: 20,
   },
+  spacer: {
+    height: 20, // Espaçador adicional
+  },
   formCard: {
     borderRadius: 16,
     padding: 20,
-    marginBottom: 16,
+    marginBottom: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -625,6 +642,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     backgroundColor: '#FFFFFF',
     borderColor: '#DDDDDD',
+    position: 'relative',
+    zIndex: 5,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -648,7 +667,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 10,
     overflow: 'hidden',
-    zIndex: 999, // Importante para garantir que o picker fique por cima de outros elementos
   },
   picker: {
     height: 50,
@@ -768,6 +786,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   footer: {
-    height: 20,
+    height: 50,
   },
 });

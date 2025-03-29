@@ -12,7 +12,8 @@ import {
   Animated,
   StatusBar,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  Image
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { Feather } from '@expo/vector-icons';
@@ -26,13 +27,15 @@ export default function EditUser({ route, navigation }: any) {
   const [loading, setLoading] = useState(false);
   const [initialLoad, setInitialLoad] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [avatarError, setAvatarError] = useState(false);
   const [user, setUser] = useState({
     username: '',
     email: '',
     role: 'user',
     isActive: true,
     fullName: '',
-    phone: ''
+    phone: '',
+    avatar_url: ''
   });
   
   // Track if fields have been modified
@@ -55,6 +58,7 @@ export default function EditUser({ route, navigation }: any) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
   const loadingAnim = useRef(new Animated.Value(1)).current;
+  const avatarScale = useRef(new Animated.Value(1)).current;
 
   const { userId } = route.params;
 
@@ -102,7 +106,8 @@ export default function EditUser({ route, navigation }: any) {
           role: userData.role || 'user',
           isActive: typeof userData.is_active === 'boolean' ? userData.is_active : true,
           fullName: userData.full_name || '',
-          phone: userData.phone || ''
+          phone: userData.phone || '',
+          avatar_url: userData.avatar_url || ''
         });
       }
     } catch (error) {
@@ -229,6 +234,113 @@ export default function EditUser({ route, navigation }: any) {
     );
   };
 
+  // Renderizar o avatar do usuário
+  const renderAvatar = () => {
+    // Animação ao tocar no avatar
+    const handleAvatarPress = () => {
+      Animated.sequence([
+        Animated.timing(avatarScale, {
+          toValue: 0.95,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(avatarScale, {
+          toValue: 1,
+          duration: 100,
+          useNativeDriver: true,
+        })
+      ]).start();
+    };
+    
+    // Se o usuário tem um avatar e não houve erro no carregamento
+    if (user.avatar_url && !avatarError) {
+      // Construir URL completa do avatar
+      const avatarUrl = user.avatar_url.startsWith('http')
+        ? user.avatar_url
+        : `${api.defaults.baseURL}${user.avatar_url}`;
+        
+      return (
+        <Animated.View 
+          style={[
+            styles.avatarContainer,
+            { transform: [{ scale: avatarScale }] }
+          ]}
+        >
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={handleAvatarPress}
+          >
+            <Image
+              source={{ uri: avatarUrl }}
+              style={styles.avatar}
+              onError={(e) => {
+                console.log("Erro ao carregar avatar:", e.nativeEvent.error);
+                setAvatarError(true);
+              }}
+            />
+            <View style={[
+              styles.avatarBadge,
+              { backgroundColor: user.isActive ? '#4CAF50' : '#9E9E9E' }
+            ]} />
+          </TouchableOpacity>
+        </Animated.View>
+      );
+    } else {
+      // Fallback com iniciais quando não há avatar ou houve erro
+      const getColorFromRole = (role: string) => {
+        switch (role) {
+          case 'admin':
+            return '#E1306C'; // Rosa
+          case 'manager':
+            return '#FCAF45'; // Laranja
+          case 'editor':
+            return '#4F5BD5'; // Azul
+          default:
+            return '#00B2FF'; // Azul claro
+        }
+      };
+      
+      // Obter iniciais do nome ou username
+      const getInitials = () => {
+        if (user.fullName && user.fullName.length > 0) {
+          return user.fullName.charAt(0).toUpperCase();
+        }
+        return user.username.charAt(0).toUpperCase();
+      };
+      
+      const backgroundColor = getColorFromRole(user.role);
+      
+      return (
+        <Animated.View 
+          style={[
+            styles.avatarContainer,
+            { transform: [{ scale: avatarScale }] }
+          ]}
+        >
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={handleAvatarPress}
+          >
+            <View 
+              style={[
+                styles.avatarFallback,
+                { backgroundColor }
+              ]}
+            >
+              <Text style={styles.avatarInitials}>
+                {getInitials()}
+              </Text>
+            </View>
+            <View style={[
+              styles.avatarBadge,
+              { backgroundColor: user.isActive ? '#4CAF50' : '#9E9E9E' }
+            ]} />
+          </TouchableOpacity>
+        </Animated.View>
+      );
+    }
+  };
+
   // Loading screen while fetching data
   if (initialLoad) {
     return (
@@ -288,33 +400,8 @@ export default function EditUser({ route, navigation }: any) {
             }
           ]}
         >
-          <View style={styles.userAvatarContainer}>
-            <View 
-              style={[
-                styles.userAvatar,
-                { backgroundColor: getRoleBadgeColor(user.role) }
-              ]}
-            >
-              <Text style={styles.userInitial}>
-                {user.username.charAt(0).toUpperCase()}
-              </Text>
-            </View>
-            
-            <View style={styles.userStatus}>
-              <View 
-                style={[
-                  styles.statusIndicator,
-                  { backgroundColor: user.isActive ? '#4CAF50' : '#9E9E9E' }
-                ]}
-              />
-              <Text style={[
-                styles.statusText,
-                { color: user.isActive ? '#4CAF50' : '#9E9E9E' }
-              ]}>
-                {user.isActive ? 'Ativo' : 'Inativo'}
-              </Text>
-            </View>
-          </View>
+          {/* Avatar do usuário */}
+          {renderAvatar()}
           
           <Text style={[styles.headerTitle, { color: theme.text }]}>
             Editar Usuário
@@ -325,6 +412,40 @@ export default function EditUser({ route, navigation }: any) {
           ]}>
             ID: {userId} - Criado em {new Date().toLocaleDateString()}
           </Text>
+          
+          {/* Badges de status e função */}
+          <View style={styles.badgesContainer}>
+            <View style={[
+              styles.roleBadge,
+              { backgroundColor: getRoleBadgeColor(user.role) }
+            ]}>
+              <Text style={styles.badgeText}>
+                {getRoleDescription(user.role)}
+              </Text>
+            </View>
+            
+            <View style={[
+              styles.statusBadge,
+              { 
+                backgroundColor: user.isActive ? 
+                  'rgba(46, 125, 50, 0.2)' : 
+                  'rgba(235, 77, 75, 0.2)',
+                borderColor: user.isActive ? '#2E7D32' : '#eb4d4b',
+                borderWidth: 1
+              }
+            ]}>
+              <View style={[
+                styles.statusDot,
+                { backgroundColor: user.isActive ? '#2E7D32' : '#eb4d4b' }
+              ]} />
+              <Text style={[
+                styles.badgeText,
+                { color: user.isActive ? '#2E7D32' : '#eb4d4b' }
+              ]}>
+                {user.isActive ? 'Ativo' : 'Inativo'}
+              </Text>
+            </View>
+          </View>
         </Animated.View>
         
         <Animated.View 
@@ -452,7 +573,7 @@ export default function EditUser({ route, navigation }: any) {
               Função atual:
             </Text>
             <View style={[
-              styles.roleBadge,
+              styles.roleBadgeSmall,
               { backgroundColor: getRoleBadgeColor(user.role) }
             ]}>
               <Text style={styles.roleBadgeText}>
@@ -593,37 +714,42 @@ const styles = StyleSheet.create({
     elevation: 3,
     borderWidth: 1,
   },
-  userAvatarContainer: {
-    alignItems: 'center',
-    position: 'relative',
+  avatarContainer: {
+    width: 100,
+    height: 100,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 5,
+    elevation: 5,
   },
-  userAvatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+  avatar: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+  },
+  avatarFallback: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 8,
   },
-  userInitial: {
-    fontSize: 32,
+  avatarInitials: {
+    fontSize: 40,
     fontWeight: 'bold',
     color: '#FFFFFF',
   },
-  userStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  statusIndicator: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: 6,
-  },
-  statusText: {
-    fontWeight: '600',
-    fontSize: 14,
+  avatarBadge: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
   headerTitle: {
     fontSize: 24,
@@ -634,6 +760,36 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     fontSize: 14,
     textAlign: 'center',
+  },
+  badgesContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 12,
+  },
+  roleBadge: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    marginHorizontal: 5,
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    marginHorizontal: 5,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 5,
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   formCard: {
     borderRadius: 16,
@@ -681,7 +837,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginRight: 10,
   },
-  roleBadge: {
+  roleBadgeSmall: {
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 12,

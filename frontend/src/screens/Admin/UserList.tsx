@@ -423,10 +423,7 @@ export default function UserList({ navigation }: any) {
 
   const renderHeader = () => (
     <View style={styles.header}>
-      <View style={styles.titleContainer}>
-        <Text style={styles.title}>Gerenciar Usuários</Text>
-        <Text style={styles.subtitle}>Visualize e gerencie todos os usuários do sistema</Text>
-      </View>
+      {/* Removido o título "Gerenciar Usuários" e o subtítulo */}
       
       <View style={styles.searchContainer}>
         <Animated.View style={[
@@ -688,20 +685,7 @@ const styles = StyleSheet.create({
   header: {
     marginBottom: 16,
   },
-  titleContainer: {
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#262626',
-    marginBottom: 6,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#737373',
-    marginBottom: 8,
-  },
+  // Removidos estilos de titleContainer, title e subtitle
   userItemContainer: {
     marginBottom: 12,
   },
