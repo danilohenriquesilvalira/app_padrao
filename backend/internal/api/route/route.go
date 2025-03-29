@@ -18,6 +18,7 @@ func SetupRoutes(
 	adminHandler *handler.AdminHandler,
 	permissionHandler *handler.PermissionHandler,
 	profileHandler *handler.ProfileHandler,
+	plcHandler *handler.PLCHandler,
 	userRepo domain.UserRepository,
 	jwtSecret string,
 ) {
@@ -52,7 +53,7 @@ func SetupRoutes(
 		api.GET("/profile", profileHandler.GetProfile)
 		api.PUT("/profile", profileHandler.UpdateProfile)
 		api.POST("/profile/avatar", profileHandler.UploadAvatar)
-		api.DELETE("/profile/avatar", profileHandler.DeleteAvatar) // Adicionado endpoint para remoção de avatar
+		api.DELETE("/profile/avatar", profileHandler.DeleteAvatar)
 		api.PUT("/profile/password", profileHandler.ChangePassword)
 		api.DELETE("/profile", profileHandler.DeleteAccount)
 
@@ -62,9 +63,9 @@ func SetupRoutes(
 		// Permissões
 		api.GET("/permissions", permissionHandler.GetUserPermissions)
 
-		// Admin - temporariamente sem middleware de permissão para teste
+		// Admin
 		admin := api.Group("/admin")
-		//admin.Use(middleware.PermissionMiddleware(userRepo, "admin_panel"))
+		admin.Use(middleware.PermissionMiddleware(userRepo, "admin_panel"))
 		{
 			// Usuários
 			admin.GET("/users", adminHandler.ListUsers)
@@ -75,6 +76,24 @@ func SetupRoutes(
 
 			// Roles
 			admin.GET("/roles", adminHandler.ListRoles)
+		}
+
+		// PLC routes - NOVA SEÇÃO
+		plc := api.Group("/plc")
+		{
+			plc.GET("/", plcHandler.GetAllPLCs)
+			plc.GET("/:id", plcHandler.GetPLC)
+			plc.POST("/", middleware.PermissionMiddleware(userRepo, "plc_create"), plcHandler.CreatePLC)
+			plc.PUT("/:id", middleware.PermissionMiddleware(userRepo, "plc_update"), plcHandler.UpdatePLC)
+			plc.DELETE("/:id", middleware.PermissionMiddleware(userRepo, "plc_delete"), plcHandler.DeletePLC)
+
+			plc.GET("/:id/tags", plcHandler.GetPLCTags)
+			plc.GET("/tags/:id", plcHandler.GetTagByID)
+			plc.POST("/:id/tags", middleware.PermissionMiddleware(userRepo, "plc_tag_create"), plcHandler.CreatePLCTag)
+			plc.PUT("/tags/:id", middleware.PermissionMiddleware(userRepo, "plc_tag_update"), plcHandler.UpdatePLCTag)
+			plc.DELETE("/tags/:id", middleware.PermissionMiddleware(userRepo, "plc_tag_delete"), plcHandler.DeletePLCTag)
+
+			plc.POST("/tag/write", middleware.PermissionMiddleware(userRepo, "plc_write"), plcHandler.WriteTagValue)
 		}
 	}
 }
