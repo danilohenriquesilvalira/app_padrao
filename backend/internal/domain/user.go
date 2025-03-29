@@ -13,6 +13,7 @@ type User struct {
 	FullName  string `json:"full_name"`
 	Phone     string `json:"phone"`
 	LastLogin string `json:"last_login"`
+	AvatarURL string `json:"avatar_url"` // Novo campo adicionado
 }
 
 type UserRepository interface {
@@ -23,7 +24,7 @@ type UserRepository interface {
 	Delete(id int) error
 	List(page, pageSize int) ([]User, int, error)
 	HasPermission(userID int, permissionCode string) (bool, error)
-	UpdateLastLogin(userID int) error // Novo método
+	UpdateLastLogin(userID int) error
 }
 
 type UserService interface {

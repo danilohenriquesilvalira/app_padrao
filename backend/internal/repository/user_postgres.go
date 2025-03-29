@@ -48,12 +48,12 @@ func (r *UserRepository) Create(user domain.User) (int, error) {
 
 func (r *UserRepository) GetByID(id int) (domain.User, error) {
 	var user domain.User
-	var fullName, phone sql.NullString
+	var fullName, phone, avatarURL sql.NullString
 	var lastLogin sql.NullTime
 
 	query := `
-        SELECT id, username, email, role, is_active, full_name, phone, last_login
-        FROM users
+        SELECT id, username, email, role, is_active, full_name, phone, last_login, avatar_url
+        FROM users_with_avatars
         WHERE id = $1
     `
 
@@ -66,6 +66,7 @@ func (r *UserRepository) GetByID(id int) (domain.User, error) {
 		&fullName,
 		&phone,
 		&lastLogin,
+		&avatarURL,
 	)
 
 	if err != nil {
@@ -95,17 +96,23 @@ func (r *UserRepository) GetByID(id int) (domain.User, error) {
 		user.LastLogin = ""
 	}
 
+	if avatarURL.Valid {
+		user.AvatarURL = avatarURL.String
+	} else {
+		user.AvatarURL = ""
+	}
+
 	return user, nil
 }
 
 func (r *UserRepository) GetByEmail(email string) (domain.User, error) {
 	var user domain.User
-	var fullName, phone sql.NullString
+	var fullName, phone, avatarURL sql.NullString
 	var lastLogin sql.NullTime
 
 	query := `
-        SELECT id, username, email, password, role, is_active, full_name, phone, last_login
-        FROM users
+        SELECT id, username, email, password, role, is_active, full_name, phone, last_login, avatar_url
+        FROM users_with_avatars
         WHERE email = $1
     `
 
@@ -119,6 +126,7 @@ func (r *UserRepository) GetByEmail(email string) (domain.User, error) {
 		&fullName,
 		&phone,
 		&lastLogin,
+		&avatarURL,
 	)
 
 	if err != nil {
@@ -146,6 +154,12 @@ func (r *UserRepository) GetByEmail(email string) (domain.User, error) {
 		user.LastLogin = lastLogin.Time.Format(time.RFC3339)
 	} else {
 		user.LastLogin = ""
+	}
+
+	if avatarURL.Valid {
+		user.AvatarURL = avatarURL.String
+	} else {
+		user.AvatarURL = ""
 	}
 
 	return user, nil
@@ -279,12 +293,13 @@ func (r *UserRepository) List(page, pageSize int) ([]domain.User, int, error) {
 	// Log para depuração
 	log.Printf("Executando contagem de usuários")
 
+	// Mantemos a contagem na tabela users para não alterar o comportamento
 	countQuery := "SELECT COUNT(*) FROM users"
 	var total int
 	err := r.db.QueryRow(countQuery).Scan(&total)
 	if err != nil {
 		log.Printf("Erro ao contar usuários: %v", err)
-		return []domain.User{}, 0, err // Retornar array vazio em vez de nil
+		return []domain.User{}, 0, err
 	}
 
 	log.Printf("Total de usuários: %d", total)
@@ -294,27 +309,28 @@ func (r *UserRepository) List(page, pageSize int) ([]domain.User, int, error) {
 		return []domain.User{}, 0, nil
 	}
 
-	// Use COALESCE para garantir que valores NULL sejam convertidos para string vazia
+	// Usar a VIEW para obter os usuários com avatares
 	query := `
-		SELECT 
-			id, 
-			username, 
-			email, 
-			role, 
-			is_active, 
-			COALESCE(full_name, '') as full_name, 
-			COALESCE(phone, '') as phone
-		FROM users
-		ORDER BY id
-		LIMIT $1 OFFSET $2
-	`
+        SELECT 
+            id, 
+            username, 
+            email, 
+            role, 
+            is_active, 
+            COALESCE(full_name, '') as full_name, 
+            COALESCE(phone, '') as phone,
+            COALESCE(avatar_url, '') as avatar_url
+        FROM users_with_avatars
+        ORDER BY id
+        LIMIT $1 OFFSET $2
+    `
 
 	log.Printf("Executando consulta: LIMIT %d OFFSET %d", pageSize, offset)
 
 	rows, err := r.db.Query(query, pageSize, offset)
 	if err != nil {
 		log.Printf("Erro na consulta SQL: %v", err)
-		return []domain.User{}, 0, err // Retornar array vazio em vez de nil
+		return []domain.User{}, 0, err
 	}
 	defer rows.Close()
 
@@ -331,17 +347,18 @@ func (r *UserRepository) List(page, pageSize int) ([]domain.User, int, error) {
 			&user.IsActive,
 			&user.FullName,
 			&user.Phone,
+			&user.AvatarURL,
 		)
 		if err != nil {
 			log.Printf("Erro ao escanear linha: %v", err)
-			return []domain.User{}, 0, err // Retornar array vazio em vez de nil
+			return []domain.User{}, 0, err
 		}
 		users = append(users, user)
 	}
 
 	if err = rows.Err(); err != nil {
 		log.Printf("Erro após iteração de linhas: %v", err)
-		return []domain.User{}, 0, err // Retornar array vazio em vez de nil
+		return []domain.User{}, 0, err
 	}
 
 	log.Printf("Usuários encontrados: %d", len(users))
