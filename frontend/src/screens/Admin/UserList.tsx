@@ -12,7 +12,8 @@ import {
   Dimensions,
   TextInput,
   Modal,
-  StatusBar
+  StatusBar,
+  Image
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import api from '../../services/api';
@@ -31,6 +32,7 @@ type User = {
   isActive: boolean;
   fullName?: string;
   phone?: string;
+  avatar_url?: string; // Adicionando o campo de avatar
 };
 
 export default function UserList({ navigation }: any) {
@@ -46,6 +48,7 @@ export default function UserList({ navigation }: any) {
   const [deleteConfirmModal, setDeleteConfirmModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [avatarErrors, setAvatarErrors] = useState<{[key: number]: boolean}>({});
 
   // Animation references
   const listAnimation = useRef(new Animated.Value(0)).current;
@@ -103,10 +106,7 @@ export default function UserList({ navigation }: any) {
         useNativeDriver: true,
       })
     ]).start();
-  }, []);
-
-  // Load users on component mount
-  useEffect(() => {
+    
     loadUsers();
   }, []);
 
@@ -127,7 +127,7 @@ export default function UserList({ navigation }: any) {
 
   // Animate items as they enter
   useEffect(() => {
-    users.forEach((user, index) => {
+    users.forEach((user: User, index) => {
       const delay = index * 100;
       Animated.timing(ensureItemAnimation(user.id), {
         toValue: 1,
@@ -152,14 +152,29 @@ export default function UserList({ navigation }: any) {
       const responseUsers = Array.isArray(response.data?.users) ? response.data.users : [];
       const responseTotal = typeof response.data?.total === 'number' ? response.data.total : 0;
       
+      // Converter campos de snake_case para camelCase se necessário
+      const formattedUsers = responseUsers.map((user: any) => ({
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        isActive: user.is_active !== undefined ? user.is_active : user.isActive,
+        fullName: user.full_name || user.fullName || '',
+        phone: user.phone || '',
+        avatar_url: user.avatar_url || null
+      }));
+      
       if (shouldRefresh || p === 1) {
-        setUsers(responseUsers);
+        setUsers(formattedUsers);
       } else {
-        setUsers(prevUsers => [...prevUsers, ...responseUsers]);
+        setUsers(prevUsers => [...prevUsers, ...formattedUsers]);
       }
       
       setTotal(responseTotal);
       setPage(p);
+      
+      // Limpar erros de avatar ao carregar novos usuários
+      setAvatarErrors({});
     } catch (error) {
       console.error('Erro ao carregar usuários:', error);
       
@@ -232,7 +247,31 @@ export default function UserList({ navigation }: any) {
     }).start();
   };
 
-  const renderAvatar = (username: string, email: string) => {
+  const handleAvatarError = (userId: number) => {
+    // Registrar erro para este avatar específico
+    setAvatarErrors(prev => ({ ...prev, [userId]: true }));
+  };
+
+  const renderAvatar = (user: User) => {
+    // Verificar se o usuário tem um avatar_url e não houve erro ao carregar
+    if (user.avatar_url && !avatarErrors[user.id]) {
+      // Construir a URL completa do avatar
+      const avatarUrl = user.avatar_url.startsWith('http') 
+        ? user.avatar_url 
+        : `${api.defaults.baseURL}${user.avatar_url}`;
+
+      return (
+        <View style={styles.avatar}>
+          <Image 
+            source={{ uri: avatarUrl }} 
+            style={styles.avatarImage}
+            onError={() => handleAvatarError(user.id)}
+          />
+        </View>
+      );
+    }
+    
+    // Fallback para o avatar com inicial se não tiver URL ou ocorreu erro
     // Generate unique color based on email - cores mais vibrantes
     const getColorFromEmail = (email: string) => {
       const colors = [
@@ -254,7 +293,7 @@ export default function UserList({ navigation }: any) {
       return colors[sum % colors.length];
     };
     
-    const avatarColor = getColorFromEmail(email);
+    const avatarColor = getColorFromEmail(user.email);
     
     // Get initials from name or username
     const getInitials = (name: string) => {
@@ -263,7 +302,7 @@ export default function UserList({ navigation }: any) {
     
     return (
       <View style={[styles.avatar, { backgroundColor: avatarColor }]}>
-        <Text style={styles.avatarText}>{getInitials(username)}</Text>
+        <Text style={styles.avatarText}>{getInitials(user.username)}</Text>
       </View>
     );
   };
@@ -304,7 +343,7 @@ export default function UserList({ navigation }: any) {
           }
         ]}>
           <View style={styles.userMainInfo}>
-            {renderAvatar(item.username, item.email)}
+            {renderAvatar(item)}
             
             <View style={styles.userDetails}>
               <View style={styles.userNameRow}>
@@ -574,7 +613,7 @@ export default function UserList({ navigation }: any) {
             </Text>
             
             <View style={styles.userPreview}>
-              {selectedUser && renderAvatar(selectedUser.username, selectedUser.email)}
+              {selectedUser && renderAvatar(selectedUser)}
               <View style={styles.userPreviewInfo}>
                 <Text style={styles.previewUsername}>
                   {selectedUser?.username}
@@ -651,6 +690,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+    overflow: 'hidden', // Garante que a imagem respeite as bordas arredondadas
+    backgroundColor: '#e0e0e0', // Cor de fundo para quando a imagem estiver carregando
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
   },
   avatarText: {
     color: '#fff',
