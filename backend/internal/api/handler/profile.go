@@ -106,8 +106,9 @@ func (h *ProfileHandler) UpdateProfile(c *gin.Context) {
 		FontSize                string          `json:"font_size"`
 		Language                string          `json:"language"`
 		NotificationPreferences map[string]bool `json:"notification_preferences"`
-		FullName                string          `json:"full_name"` // Adicionado
-		Phone                   string          `json:"phone"`     // Adicionado
+		FullName                string          `json:"full_name"`  // Adicionado
+		Phone                   string          `json:"phone"`      // Adicionado
+		AvatarURL               *string         `json:"avatar_url"` // Permitir null para remover avatar
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -127,6 +128,16 @@ func (h *ProfileHandler) UpdateProfile(c *gin.Context) {
 			Language:                "pt_BR",
 			CreatedAt:               time.Now(),
 		}
+	}
+
+	// Checar se estamos removendo o avatar
+	var oldAvatarURL string
+	if input.AvatarURL != nil && *input.AvatarURL == "" {
+		// Se temos um avatar existente, guarde o URL para remover o arquivo depois
+		if profile.AvatarURL != "" {
+			oldAvatarURL = profile.AvatarURL
+		}
+		profile.AvatarURL = ""
 	}
 
 	// Atualizar os campos fornecidos
@@ -155,6 +166,13 @@ func (h *ProfileHandler) UpdateProfile(c *gin.Context) {
 	if err := h.profileService.Update(profile); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Falha ao atualizar perfil: %v", err)})
 		return
+	}
+
+	// Remover o arquivo de avatar antigo se necessário
+	if oldAvatarURL != "" {
+		if err := deleteAvatarFile(oldAvatarURL); err != nil {
+			log.Printf("Aviso: Não foi possível excluir o arquivo de avatar antigo: %v", err)
+		}
 	}
 
 	// ADICIONADO: Atualizar campos do usuário se fornecidos
@@ -272,7 +290,7 @@ func (h *ProfileHandler) UploadAvatar(c *gin.Context) {
 	// Gerar nome único para o arquivo
 	filename := generateUniqueFilename(file.Filename)
 
-	// MODIFICAÇÃO: Usando o novo caminho D:\Avatar
+	// Usando o caminho D:\Avatar
 	avatarDir := "D:\\Avatar"
 
 	// Garantir que o diretório exista
@@ -283,17 +301,23 @@ func (h *ProfileHandler) UploadAvatar(c *gin.Context) {
 
 	dstPath := filepath.Join(avatarDir, filename)
 
+	// Buscar o perfil atual para verificar se há um avatar anterior
+	var oldAvatarURL string
+	profile, err := h.profileService.GetByUserID(userID.(int))
+	if err == nil && profile.AvatarURL != "" {
+		oldAvatarURL = profile.AvatarURL
+	}
+
 	// Salvar o arquivo
 	if err := c.SaveUploadedFile(file, dstPath); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Falha ao salvar imagem: %v", err)})
 		return
 	}
 
-	// MODIFICAÇÃO: Nova URL para o avatar
+	// Nova URL para o avatar
 	avatarURL := fmt.Sprintf("/avatar/%s", filename)
 
 	// Atualizar o avatar_url no perfil
-	profile, err := h.profileService.GetByUserID(userID.(int))
 	if err != nil {
 		// Se não existir perfil, criar um novo
 		profile = domain.Profile{
@@ -314,14 +338,93 @@ func (h *ProfileHandler) UploadAvatar(c *gin.Context) {
 	}
 
 	if err != nil {
+		// Em caso de erro ao atualizar perfil, tentar remover o arquivo recém-carregado
+		removeErr := os.Remove(dstPath)
+		if removeErr != nil {
+			log.Printf("Erro ao remover arquivo após falha de atualização: %v", removeErr)
+		}
+
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao atualizar perfil"})
 		return
+	}
+
+	// Remover o arquivo antigo, se existir
+	if oldAvatarURL != "" {
+		if err := deleteAvatarFile(oldAvatarURL); err != nil {
+			log.Printf("Aviso: Não foi possível excluir o arquivo de avatar antigo: %v", err)
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "Avatar atualizado com sucesso",
 		"avatar_url": avatarURL,
 	})
+}
+
+// DeleteAvatar endpoint para remover o avatar do usuário
+func (h *ProfileHandler) DeleteAvatar(c *gin.Context) {
+	userID, _ := c.Get("userID")
+
+	// Buscar perfil
+	profile, err := h.profileService.GetByUserID(userID.(int))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Perfil não encontrado"})
+		return
+	}
+
+	// Verificar se existe um avatar para remover
+	if profile.AvatarURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Usuário não possui avatar"})
+		return
+	}
+
+	// Guardar o URL antigo para remover depois
+	oldAvatarURL := profile.AvatarURL
+
+	// Atualizar o perfil no banco de dados
+	profile.AvatarURL = ""
+	profile.UpdatedAt = time.Now()
+
+	err = h.profileService.Update(profile)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao atualizar perfil"})
+		return
+	}
+
+	// Remover o arquivo físico
+	if err := deleteAvatarFile(oldAvatarURL); err != nil {
+		log.Printf("Aviso: Não foi possível excluir o arquivo de avatar: %v", err)
+		// Continuar mesmo em caso de erro ao excluir o arquivo
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Avatar removido com sucesso",
+	})
+}
+
+// Função auxiliar para excluir arquivo de avatar
+func deleteAvatarFile(avatarURL string) error {
+	// Extrair o nome do arquivo da URL
+	fileName := filepath.Base(avatarURL)
+	if fileName == "" {
+		return fmt.Errorf("nome de arquivo inválido extraído de: %s", avatarURL)
+	}
+
+	// Caminho completo do arquivo
+	avatarPath := filepath.Join("D:\\Avatar", fileName)
+
+	// Verificar se o arquivo existe
+	if _, err := os.Stat(avatarPath); os.IsNotExist(err) {
+		return fmt.Errorf("arquivo não encontrado: %s", avatarPath)
+	}
+
+	// Remover o arquivo
+	if err := os.Remove(avatarPath); err != nil {
+		return fmt.Errorf("erro ao remover arquivo %s: %v", avatarPath, err)
+	}
+
+	log.Printf("Arquivo de avatar removido com sucesso: %s", avatarPath)
+	return nil
 }
 
 // Função auxiliar para gerar nome de arquivo único
@@ -338,12 +441,12 @@ func generateUniqueFilename(originalFilename string) string {
 	return fmt.Sprintf("%s_%s%s", timestamp, baseName, ext)
 }
 
-// ChangePassword altera a senha do usuário (implementação básica)
+// ChangePassword altera a senha do usuário
 func (h *ProfileHandler) ChangePassword(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Senha alterada com sucesso"})
 }
 
-// DeleteAccount exclui a conta do usuário (implementação básica)
+// DeleteAccount exclui a conta do usuário
 func (h *ProfileHandler) DeleteAccount(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Conta excluída com sucesso"})
 }

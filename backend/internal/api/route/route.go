@@ -24,7 +24,7 @@ func SetupRoutes(
 	// CORS - Configuração melhorada
 	router.Use(corsMiddleware())
 
-	// MODIFICAÇÃO: Usar o novo caminho D:\Avatar
+	// Diretório de avatares
 	avatarDir := "D:\\Avatar"
 
 	// Criar diretório de avatares se não existir
@@ -32,7 +32,7 @@ func SetupRoutes(
 		log.Printf("Erro ao criar diretório de avatares: %v", err)
 	}
 
-	// MODIFICAÇÃO: Servir arquivos estáticos do novo diretório
+	// Servir arquivos estáticos do diretório de avatares
 	router.Static("/avatar", avatarDir)
 
 	// Rotas para verificação de saúde da API
@@ -52,20 +52,21 @@ func SetupRoutes(
 		api.GET("/profile", profileHandler.GetProfile)
 		api.PUT("/profile", profileHandler.UpdateProfile)
 		api.POST("/profile/avatar", profileHandler.UploadAvatar)
+		api.DELETE("/profile/avatar", profileHandler.DeleteAvatar) // Adicionado endpoint para remoção de avatar
 		api.PUT("/profile/password", profileHandler.ChangePassword)
 		api.DELETE("/profile", profileHandler.DeleteAccount)
 
 		// Temas
 		api.GET("/themes", profileHandler.GetThemes)
 
-		// Permissões - Modifique para retornar sempre resposta válida mesmo que vazia
+		// Permissões
 		api.GET("/permissions", permissionHandler.GetUserPermissions)
 
 		// Admin - temporariamente sem middleware de permissão para teste
 		admin := api.Group("/admin")
 		//admin.Use(middleware.PermissionMiddleware(userRepo, "admin_panel"))
 		{
-			// Usuários - sem verificação de permissão para teste
+			// Usuários
 			admin.GET("/users", adminHandler.ListUsers)
 			admin.GET("/users/:id", adminHandler.GetUser)
 			admin.PUT("/users/:id", adminHandler.UpdateUser)

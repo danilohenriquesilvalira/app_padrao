@@ -1,5 +1,5 @@
 // src/screens/Preferences.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,11 @@ import {
   Alert,
   Modal,
   TextInput,
+  Dimensions,
+  Platform,
+  SafeAreaView,
+  Animated,
+  StatusBar
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -21,16 +26,24 @@ import Input from '../components/Input';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 
+const { width } = Dimensions.get('window');
+
 interface NotificationPreferences {
   email: boolean;
   push: boolean;
   sms: boolean;
 }
 
+interface PrivacySettings {
+  showEmail: boolean;
+  showOnlineStatus: boolean;
+  allowDataCollection: boolean;
+}
+
 export default function Preferences() {
   const navigation = useNavigation();
   const { signOut } = useAuth();
-  const { theme, isDarkMode } = useTheme();
+  const { theme, isDarkMode } = useTheme(); // Removido toggleTheme que não existe no tipo
   const [loading, setLoading] = useState(false);
   const [preferences, setPreferences] = useState({
     notifications: {
@@ -38,8 +51,8 @@ export default function Preferences() {
       push: true,
       sms: false,
     } as NotificationPreferences,
-    fontSize: 'medium',
     language: 'pt_BR',
+    originalLanguage: 'pt_BR', // Para rastrear se houve mudança
   });
   
   // Estados para os modais
@@ -64,22 +77,33 @@ export default function Preferences() {
   // Estados para exclusão de conta
   const [confirmDeleteText, setConfirmDeleteText] = useState('');
   
-  // Opções de tamanho de fonte
-  const fontSizes = [
-    { label: 'Pequeno', value: 'small' },
-    { label: 'Médio', value: 'medium' },
-    { label: 'Grande', value: 'large' },
-    { label: 'Extra grande', value: 'xlarge' },
-  ];
+  // Animações
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
   
-  // Opções de idioma
+  // Opções de idioma atualizadas
   const languages = [
     { label: 'Português (Brasil)', value: 'pt_BR' },
+    { label: 'Português (Portugal)', value: 'pt_PT' },
     { label: 'English', value: 'en_US' },
     { label: 'Español', value: 'es_ES' },
   ];
   
+  // Iniciar animação ao montar o componente
   useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 400,
+        useNativeDriver: true,
+      })
+    ]).start();
+    
     loadPreferences();
     loadPrivacySettings();
   }, []);
@@ -90,14 +114,15 @@ export default function Preferences() {
       const response = await api.get('/api/profile');
       
       if (response.data.profile) {
+        const profile = response.data.profile;
         setPreferences({
-          notifications: response.data.profile.notification_preferences || {
+          notifications: profile.notification_preferences || {
             email: true,
             push: true,
             sms: false,
           },
-          fontSize: response.data.profile.font_size || 'medium',
-          language: response.data.profile.language || 'pt_BR',
+          language: profile.language || 'pt_BR',
+          originalLanguage: profile.language || 'pt_BR', // Para rastrear mudanças
         });
       }
     } catch (error) {
@@ -133,15 +158,27 @@ export default function Preferences() {
     }));
   };
   
+  const handleLanguageChange = (value: string) => {
+    setPreferences(prev => ({
+      ...prev,
+      language: value
+    }));
+  };
+  
   const handleSavePreferences = async () => {
     try {
       setLoading(true);
       
       await api.put('/api/profile', {
-        font_size: preferences.fontSize,
         language: preferences.language,
         notification_preferences: preferences.notifications
       });
+      
+      // Atualizar o valor original após salvar
+      setPreferences(prev => ({
+        ...prev,
+        originalLanguage: prev.language
+      }));
       
       Alert.alert('Sucesso', 'Preferências salvas com sucesso!');
       navigation.goBack();
@@ -238,160 +275,303 @@ export default function Preferences() {
       setLoading(false);
     }
   };
+
+  // Função para renderizar o seletor de idioma
+  const renderLanguagePicker = () => {
+    return (
+      <View style={[
+        styles.pickerContainer, 
+        { 
+          backgroundColor: isDarkMode ? theme.surfaceVariant : '#f9f9f9',
+          borderColor: isDarkMode ? theme.border : '#e0e0e0',
+        }
+      ]}>
+        <Picker
+          selectedValue={preferences.language}
+          onValueChange={handleLanguageChange}
+          style={[styles.picker, { color: theme.text }]}
+          dropdownIconColor={theme.primary}
+          mode="dropdown"
+        >
+          {languages.map(language => (
+            <Picker.Item 
+              key={language.value} 
+              label={language.label} 
+              value={language.value} 
+              color={isDarkMode ? '#fff' : undefined}
+            />
+          ))}
+        </Picker>
+      </View>
+    );
+  };
+
+  // Verificar se houve mudanças nas preferências
+  const hasChanges = () => {
+    return (
+      JSON.stringify(preferences.notifications) !== JSON.stringify({
+        email: true,
+        push: true,
+        sms: false
+      }) ||
+      preferences.language !== preferences.originalLanguage
+    );
+  };
   
   return (
-    <ScrollView style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={[styles.section, { backgroundColor: theme.surface }]}>
-        <View style={styles.sectionHeader}>
-          <Feather name="bell" size={20} color={theme.primary} />
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Notificações</Text>
-        </View>
-        
-        <View style={[styles.optionRow, { borderBottomColor: isDarkMode ? '#333' : '#f0f0f0' }]}>
-          <View style={styles.optionInfo}>
-            <Feather name="mail" size={20} color={theme.primary} style={styles.optionIcon} />
-            <Text style={[styles.optionText, { color: theme.text }]}>Receber por email</Text>
-          </View>
-          <Switch
-            value={preferences.notifications.email}
-            onValueChange={() => handleToggleNotification('email')}
-            trackColor={{ false: isDarkMode ? '#555' : '#d1d1d1', true: `${theme.primary}80` }}
-            thumbColor={preferences.notifications.email ? theme.primary : isDarkMode ? '#888' : '#f4f3f4'}
-          />
-        </View>
-        
-        <View style={[styles.optionRow, { borderBottomColor: isDarkMode ? '#333' : '#f0f0f0' }]}>
-          <View style={styles.optionInfo}>
-            <Feather name="bell" size={20} color={theme.primary} style={styles.optionIcon} />
-            <Text style={[styles.optionText, { color: theme.text }]}>Notificações push</Text>
-          </View>
-          <Switch
-            value={preferences.notifications.push}
-            onValueChange={() => handleToggleNotification('push')}
-            trackColor={{ false: isDarkMode ? '#555' : '#d1d1d1', true: `${theme.primary}80` }}
-            thumbColor={preferences.notifications.push ? theme.primary : isDarkMode ? '#888' : '#f4f3f4'}
-          />
-        </View>
-        
-        <View style={[styles.optionRow, { borderBottomColor: isDarkMode ? '#333' : '#f0f0f0' }]}>
-          <View style={styles.optionInfo}>
-            <Feather name="smartphone" size={20} color={theme.primary} style={styles.optionIcon} />
-            <Text style={[styles.optionText, { color: theme.text }]}>Receber SMS</Text>
-          </View>
-          <Switch
-            value={preferences.notifications.sms}
-            onValueChange={() => handleToggleNotification('sms')}
-            trackColor={{ false: isDarkMode ? '#555' : '#d1d1d1', true: `${theme.primary}80` }}
-            thumbColor={preferences.notifications.sms ? theme.primary : isDarkMode ? '#888' : '#f4f3f4'}
-          />
-        </View>
-      </View>
-      
-      <View style={[styles.section, { backgroundColor: theme.surface }]}>
-        <View style={styles.sectionHeader}>
-          <Feather name="type" size={20} color={theme.primary} />
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Tamanho da Fonte</Text>
-        </View>
-        
-        <View style={[styles.pickerContainer, { backgroundColor: isDarkMode ? theme.surfaceVariant : '#f9f9f9' }]}>
-          <Picker
-            selectedValue={preferences.fontSize}
-            onValueChange={(value) => setPreferences(prev => ({ ...prev, fontSize: value }))}
-            style={[styles.picker, { color: theme.text }]}
-            dropdownIconColor={theme.text}
-          >
-            {fontSizes.map(size => (
-              <Picker.Item key={size.value} label={size.label} value={size.value} color={isDarkMode ? '#fff' : undefined} />
-            ))}
-          </Picker>
-        </View>
-
-        <View style={[styles.fontPreview, { backgroundColor: isDarkMode ? theme.surfaceVariant : '#f9f9f9' }]}>
-          <Text style={[styles.fontPreviewTitle, { color: theme.text }]}>Prévia do tamanho:</Text>
-          <Text style={[
-            styles.fontPreviewText,
-            { color: theme.text },
-            preferences.fontSize === 'small' && { fontSize: 14 },
-            preferences.fontSize === 'medium' && { fontSize: 16 },
-            preferences.fontSize === 'large' && { fontSize: 18 },
-            preferences.fontSize === 'xlarge' && { fontSize: 20 },
-          ]}>
-            Este é um exemplo de texto com o tamanho selecionado.
-          </Text>
-        </View>
-      </View>
-      
-      <View style={[styles.section, { backgroundColor: theme.surface }]}>
-        <View style={styles.sectionHeader}>
-          <Feather name="globe" size={20} color={theme.primary} />
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Idioma</Text>
-        </View>
-        
-        <View style={[styles.pickerContainer, { backgroundColor: isDarkMode ? theme.surfaceVariant : '#f9f9f9' }]}>
-          <Picker
-            selectedValue={preferences.language}
-            onValueChange={(value) => setPreferences(prev => ({ ...prev, language: value }))}
-            style={[styles.picker, { color: theme.text }]}
-            dropdownIconColor={theme.text}
-          >
-            {languages.map(lang => (
-              <Picker.Item key={lang.value} label={lang.label} value={lang.value} color={isDarkMode ? '#fff' : undefined} />
-            ))}
-          </Picker>
-        </View>
-      </View>
-      
-      <View style={[styles.section, { backgroundColor: theme.surface }]}>
-        <View style={styles.sectionHeader}>
-          <Feather name="shield" size={20} color={theme.primary} />
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Privacidade</Text>
-        </View>
-        
-        <TouchableOpacity 
-          style={[styles.privacyOption, { borderBottomColor: isDarkMode ? '#333' : '#f0f0f0' }]}
-          onPress={() => setChangePasswordModal(true)}
-        >
-          <Feather name="lock" size={20} color={theme.primary} style={styles.optionIcon} />
-          <Text style={[styles.optionText, { color: theme.text }]}>Alterar senha</Text>
-          <Feather name="chevron-right" size={20} color={isDarkMode ? '#888' : '#999'} />
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[styles.privacyOption, { borderBottomColor: isDarkMode ? '#333' : '#f0f0f0' }]}
-          onPress={() => setPrivacySettingsModal(true)}
-        >
-          <Feather name="shield" size={20} color={theme.primary} style={styles.optionIcon} />
-          <Text style={[styles.optionText, { color: theme.text }]}>Configurações de privacidade</Text>
-          <Feather name="chevron-right" size={20} color={isDarkMode ? '#888' : '#999'} />
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[styles.privacyOption, { borderBottomColor: isDarkMode ? '#333' : '#f0f0f0' }]}
-          onPress={() => setDeleteAccountModal(true)}
-        >
-          <Feather name="trash-2" size={20} color={theme.error} style={styles.optionIcon} />
-          <Text style={{ color: theme.error, fontSize: 16 }}>Excluir conta</Text>
-          <Feather name="chevron-right" size={20} color={isDarkMode ? '#888' : '#999'} />
-        </TouchableOpacity>
-      </View>
-      
-      <Button 
-        title="Salvar Preferências" 
-        onPress={handleSavePreferences} 
-        loading={loading}
-        icon={<Feather name="save" size={18} color="#FFF" />}
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
+      <StatusBar
+        backgroundColor={isDarkMode ? theme.background : theme.primary}
+        barStyle={isDarkMode ? "light-content" : "light-content"}
       />
       
-      <View style={styles.footer} />
-
+      <ScrollView 
+        style={[styles.container, { backgroundColor: theme.background }]}
+        contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Cabeçalho */}
+        <Animated.View 
+          style={[
+            styles.headerContainer,
+            {
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }]
+            }
+          ]}
+        >
+          <Text style={[styles.headerTitle, { color: theme.text }]}>
+            Preferências do Aplicativo
+          </Text>
+          <Text style={[styles.headerSubtitle, { color: theme.textSecondary }]}>
+            Personalize sua experiência conforme suas necessidades
+          </Text>
+        </Animated.View>
+        
+        {/* Seção de Notificações */}
+        <Animated.View 
+          style={[
+            styles.section, 
+            { 
+              backgroundColor: theme.surface,
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }]
+            }
+          ]}
+        >
+          <View style={styles.sectionHeader}>
+            <Feather name="bell" size={22} color={theme.primary} />
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Notificações</Text>
+          </View>
+          
+          <View style={[
+            styles.optionRow, 
+            { borderBottomColor: isDarkMode ? '#333' : '#f0f0f0' }
+          ]}>
+            <View style={styles.optionInfo}>
+              <Feather name="mail" size={20} color={theme.primary} style={styles.optionIcon} />
+              <View>
+                <Text style={[styles.optionText, { color: theme.text }]}>
+                  Receber por email
+                </Text>
+                <Text style={[styles.optionSubtext, { color: theme.textSecondary }]}>
+                  Enviar notificações para seu email
+                </Text>
+              </View>
+            </View>
+            <Switch
+              value={preferences.notifications.email}
+              onValueChange={() => handleToggleNotification('email')}
+              trackColor={{ false: isDarkMode ? '#555' : '#d1d1d1', true: `${theme.primary}80` }}
+              thumbColor={preferences.notifications.email ? theme.primary : isDarkMode ? '#888' : '#f4f3f4'}
+            />
+          </View>
+          
+          <View style={[
+            styles.optionRow, 
+            { borderBottomColor: isDarkMode ? '#333' : '#f0f0f0' }
+          ]}>
+            <View style={styles.optionInfo}>
+              <Feather name="bell" size={20} color={theme.primary} style={styles.optionIcon} />
+              <View>
+                <Text style={[styles.optionText, { color: theme.text }]}>
+                  Notificações push
+                </Text>
+                <Text style={[styles.optionSubtext, { color: theme.textSecondary }]}>
+                  Receber alertas no dispositivo
+                </Text>
+              </View>
+            </View>
+            <Switch
+              value={preferences.notifications.push}
+              onValueChange={() => handleToggleNotification('push')}
+              trackColor={{ false: isDarkMode ? '#555' : '#d1d1d1', true: `${theme.primary}80` }}
+              thumbColor={preferences.notifications.push ? theme.primary : isDarkMode ? '#888' : '#f4f3f4'}
+            />
+          </View>
+          
+          <View style={styles.optionRow}>
+            <View style={styles.optionInfo}>
+              <Feather name="smartphone" size={20} color={theme.primary} style={styles.optionIcon} />
+              <View>
+                <Text style={[styles.optionText, { color: theme.text }]}>
+                  Receber SMS
+                </Text>
+                <Text style={[styles.optionSubtext, { color: theme.textSecondary }]}>
+                  Alertas via mensagem de texto
+                </Text>
+              </View>
+            </View>
+            <Switch
+              value={preferences.notifications.sms}
+              onValueChange={() => handleToggleNotification('sms')}
+              trackColor={{ false: isDarkMode ? '#555' : '#d1d1d1', true: `${theme.primary}80` }}
+              thumbColor={preferences.notifications.sms ? theme.primary : isDarkMode ? '#888' : '#f4f3f4'}
+            />
+          </View>
+        </Animated.View>
+        
+        {/* Seção de Idioma */}
+        <Animated.View 
+          style={[
+            styles.section, 
+            { 
+              backgroundColor: theme.surface,
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }]
+            }
+          ]}
+        >
+          <View style={styles.sectionHeader}>
+            <Feather name="globe" size={22} color={theme.primary} />
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Idioma</Text>
+          </View>
+          
+          <Text style={[styles.pickerLabel, { color: theme.textSecondary }]}>
+            Selecione o idioma do aplicativo:
+          </Text>
+          
+          {renderLanguagePicker()}
+          
+          <View style={[
+            styles.languageInfo, 
+            { backgroundColor: isDarkMode ? theme.surfaceVariant : '#f0f8ff' }
+          ]}>
+            <Feather name="info" size={16} color={theme.info} style={{ marginRight: 8 }} />
+            <Text style={[styles.languageInfoText, { color: theme.text }]}>
+              A alteração do idioma será aplicada após salvar as preferências.
+            </Text>
+          </View>
+        </Animated.View>
+        
+        {/* Seção de Privacidade */}
+        <Animated.View 
+          style={[
+            styles.section, 
+            { 
+              backgroundColor: theme.surface,
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }]
+            }
+          ]}
+        >
+          <View style={styles.sectionHeader}>
+            <Feather name="shield" size={22} color={theme.primary} />
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Privacidade</Text>
+          </View>
+          
+          <TouchableOpacity 
+            style={[
+              styles.privacyOption, 
+              { borderBottomColor: isDarkMode ? '#333' : '#f0f0f0' }
+            ]}
+            onPress={() => setChangePasswordModal(true)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.optionInfo}>
+              <Feather name="lock" size={20} color={theme.primary} style={styles.optionIcon} />
+              <View>
+                <Text style={[styles.optionText, { color: theme.text }]}>
+                  Alterar senha
+                </Text>
+                <Text style={[styles.optionSubtext, { color: theme.textSecondary }]}>
+                  Atualize sua senha de acesso
+                </Text>
+              </View>
+            </View>
+            <Feather name="chevron-right" size={20} color={isDarkMode ? '#888' : '#999'} />
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[
+              styles.privacyOption, 
+              { borderBottomColor: isDarkMode ? '#333' : '#f0f0f0' }
+            ]}
+            onPress={() => setPrivacySettingsModal(true)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.optionInfo}>
+              <Feather name="shield" size={20} color={theme.primary} style={styles.optionIcon} />
+              <View>
+                <Text style={[styles.optionText, { color: theme.text }]}>
+                  Configurações de privacidade
+                </Text>
+                <Text style={[styles.optionSubtext, { color: theme.textSecondary }]}>
+                  Controle quem vê suas informações
+                </Text>
+              </View>
+            </View>
+            <Feather name="chevron-right" size={20} color={isDarkMode ? '#888' : '#999'} />
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.privacyOption}
+            onPress={() => setDeleteAccountModal(true)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.optionInfo}>
+              <Feather name="trash-2" size={20} color={theme.error} style={styles.optionIcon} />
+              <View>
+                <Text style={{ color: theme.error, fontSize: 16, fontWeight: '500' }}>
+                  Excluir conta
+                </Text>
+                <Text style={[styles.optionSubtext, { color: theme.textSecondary }]}>
+                  Remover permanentemente sua conta
+                </Text>
+              </View>
+            </View>
+            <Feather name="chevron-right" size={20} color={isDarkMode ? '#888' : '#999'} />
+          </TouchableOpacity>
+        </Animated.View>
+        
+        {/* Botão Salvar Alterações */}
+        <View style={styles.buttonContainer}>
+          <Button 
+            title="Salvar Preferências" 
+            onPress={handleSavePreferences} 
+            loading={loading}
+            icon={<Feather name="save" size={18} color="#FFF" />}
+            full={true}
+            disabled={!hasChanges()}
+          />
+        </View>
+      </ScrollView>
+      
       {/* Modal para alterar senha */}
       <Modal
         visible={changePasswordModal}
         transparent={true}
         animationType="slide"
+        onRequestClose={() => setChangePasswordModal(false)}
       >
         <View style={styles.modalContainer}>
-          <View style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+          <View style={[
+            styles.modalContent, 
+            { 
+              backgroundColor: theme.surface,
+              borderColor: isDarkMode ? theme.border : '#ddd',
+            }
+          ]}>
             <View style={styles.modalHeader}>
               <Feather name="lock" size={24} color={theme.primary} />
               <Text style={[styles.modalTitle, { color: theme.text }]}>Alterar Senha</Text>
@@ -451,9 +631,16 @@ export default function Preferences() {
         visible={privacySettingsModal}
         transparent={true}
         animationType="slide"
+        onRequestClose={() => setPrivacySettingsModal(false)}
       >
         <View style={styles.modalContainer}>
-          <View style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+          <View style={[
+            styles.modalContent, 
+            { 
+              backgroundColor: theme.surface,
+              borderColor: isDarkMode ? theme.border : '#ddd',
+            }
+          ]}>
             <View style={styles.modalHeader}>
               <Feather name="shield" size={24} color={theme.primary} />
               <Text style={[styles.modalTitle, { color: theme.text }]}>Configurações de Privacidade</Text>
@@ -526,9 +713,16 @@ export default function Preferences() {
         visible={deleteAccountModal}
         transparent={true}
         animationType="slide"
+        onRequestClose={() => setDeleteAccountModal(false)}
       >
         <View style={styles.modalContainer}>
-          <View style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+          <View style={[
+            styles.modalContent, 
+            { 
+              backgroundColor: theme.surface,
+              borderColor: isDarkMode ? theme.border : '#ddd',
+            }
+          ]}>
             <View style={styles.modalHeaderDanger}>
               <Feather name="alert-triangle" size={24} color={theme.error} />
               <Text style={[styles.modalTitle, { color: theme.error }]}>Excluir Conta</Text>
@@ -571,13 +765,14 @@ export default function Preferences() {
                 title="Excluir Conta" 
                 onPress={handleDeleteAccount} 
                 loading={loading}
+                variant="error"
                 icon={<Feather name="trash-2" size={18} color="#FFF" />}
               />
             </View>
           </View>
         </View>
       </Modal>
-    </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -585,11 +780,27 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  contentContainer: {
+    padding: 16,
+    paddingBottom: 24,
+  },
+  headerContainer: {
+    marginBottom: 16,
+    paddingHorizontal: 4,
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  headerSubtitle: {
+    fontSize: 16,
+    marginBottom: 8,
+  },
   section: {
-    padding: 15,
-    marginVertical: 10,
-    borderRadius: 12,
-    marginHorizontal: 15,
+    padding: 16,
+    marginBottom: 16,
+    borderRadius: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
@@ -599,12 +810,12 @@ const styles = StyleSheet.create({
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 15,
+    marginBottom: 16,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    marginLeft: 8,
+    marginLeft: 10,
   },
   optionRow: {
     flexDirection: 'row',
@@ -616,34 +827,43 @@ const styles = StyleSheet.create({
   optionInfo: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
   },
   optionIcon: {
-    marginRight: 10,
+    marginRight: 12,
   },
   optionText: {
     fontSize: 16,
+    fontWeight: '500',
+  },
+  optionSubtext: {
+    fontSize: 14,
+    marginTop: 2,
+  },
+  pickerLabel: {
+    marginBottom: 8,
+    fontSize: 15,
+    paddingLeft: 4,
   },
   pickerContainer: {
-    borderRadius: 8,
-    marginBottom: 10,
+    borderRadius: 12,
+    marginBottom: 12,
     overflow: 'hidden',
+    borderWidth: 1,
   },
   picker: {
     height: 50,
   },
-  fontPreview: {
-    padding: 15,
+  languageInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
     borderRadius: 8,
-    marginTop: 10,
+    marginTop: 4,
   },
-  fontPreviewTitle: {
-    fontWeight: 'bold',
-    marginBottom: 8,
+  languageInfoText: {
     fontSize: 14,
-  },
-  fontPreviewText: {
-    letterSpacing: 0.3,
-    lineHeight: 22,
+    flex: 1,
   },
   privacyOption: {
     flexDirection: 'row',
@@ -652,16 +872,21 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     justifyContent: 'space-between',
   },
-  footer: {
-    height: 40,
+  buttonContainer: {
+    marginTop: 24,
+    marginBottom: 24,
+    paddingHorizontal: 4,
   },
   modalContainer: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     padding: 20,
   },
   modalContent: {
+    width: '100%',
+    maxWidth: 500,
     borderRadius: 16,
     padding: 20,
     shadowColor: '#000',
@@ -669,6 +894,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
+    borderWidth: 1,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -707,5 +933,6 @@ const styles = StyleSheet.create({
     padding: 10,
     marginBottom: 10,
     textAlign: 'center',
+    fontSize: 16,
   },
 });

@@ -142,6 +142,7 @@ export default function Profile() {
         full_name: form.fullName,
         phone: form.phone
       });
+      
       // Atualizar perfil estendido
       await api.put('/api/profile', {
         bio: form.bio,
@@ -219,11 +220,12 @@ export default function Profile() {
     }
   };
 
-  // Nova função para remover avatar
+  // Implementação melhorada para remover avatar
   const handleRemoveAvatar = async () => {
     setShowAvatarOptions(false);
     
     if (!profile.avatar_url) {
+      Alert.alert('Informação', 'Você não possui uma foto de perfil para remover.');
       return;
     }
     
@@ -239,11 +241,8 @@ export default function Profile() {
             try {
               setImageLoading(true);
               
-              // Chamada para o endpoint de remoção de avatar
-              // Vamos usar o endpoint de atualização de perfil para isso
-              await api.put('/api/profile', {
-                avatar_url: null,
-              });
+              // Chamada para o endpoint específico de remoção de avatar
+              await api.delete('/api/profile/avatar');
               
               // Atualizar o estado local
               setProfile(prev => ({
@@ -470,8 +469,8 @@ export default function Profile() {
                         : `${api.defaults.baseURL}${profile.avatar_url}`
                     }}
                     style={styles.avatar}
-                    onError={() => {
-                      console.log("Erro ao carregar avatar:", profile.avatar_url);
+                    onError={(e) => {
+                      console.log("Erro ao carregar avatar:", profile.avatar_url, e.nativeEvent.error);
                       setProfile(prev => ({ ...prev, avatar_url: null }));
                     }}
                   />
