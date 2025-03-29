@@ -140,6 +140,8 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
 
   async function register(username: string, email: string, password: string) {
     try {
+      // O backend já espera username, email e password exatamente com esses nomes
+      // então não precisamos fazer adaptações aqui
       await api.post('/register', { username, email, password });
     } catch (error) {
       throw error;
@@ -148,6 +150,8 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
 
   async function updateProfile(data: any) {
     try {
+      // Aqui o data já vem no formato correto (snake_case), conforme documentado:
+      // { full_name: form.fullName, phone: form.phone }
       const response = await api.put('/api/profile', data);
       
       // Se há um usuário logado, atualizar o estado

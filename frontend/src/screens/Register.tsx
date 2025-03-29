@@ -25,6 +25,8 @@ export default function Register() {
 
     setLoading(true);
     try {
+      // O backend já espera username, email e password exatamente com esses nomes
+      // então não precisamos fazer adaptações aqui
       await register(username, email, password);
       Alert.alert('Sucesso', 'Registro realizado com sucesso', [
         { text: 'OK', onPress: () => navigation.navigate('Login' as never) }

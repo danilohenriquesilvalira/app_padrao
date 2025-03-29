@@ -94,15 +94,16 @@ export default function EditUser({ route, navigation }: any) {
       const response = await api.get(`/api/admin/users/${userId}`);
       
       if (response.data.user) {
-        setUser(response.data.user);
-        
-        // Ensure proper boolean handling for isActive
-        if (typeof response.data.user.isActive === 'string') {
-          setUser(prev => ({
-            ...prev,
-            isActive: response.data.user.isActive === 'true'
-          }));
-        }
+        // Convertendo campos de snake_case para camelCase
+        const userData = response.data.user;
+        setUser({
+          username: userData.username || '',
+          email: userData.email || '',
+          role: userData.role || 'user',
+          isActive: typeof userData.is_active === 'boolean' ? userData.is_active : true,
+          fullName: userData.full_name || '',
+          phone: userData.phone || ''
+        });
       }
     } catch (error) {
       console.error('Erro ao carregar dados do usuário', error);
@@ -133,7 +134,18 @@ export default function EditUser({ route, navigation }: any) {
   const handleUpdateUser = async () => {
     try {
       setSaving(true);
-      await api.put(`/api/admin/users/${userId}`, user);
+      
+      // Converte os campos de camelCase para snake_case antes de enviar
+      const userDataToSend = {
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        is_active: user.isActive,
+        full_name: user.fullName,
+        phone: user.phone
+      };
+      
+      await api.put(`/api/admin/users/${userId}`, userDataToSend);
       
       // Update success feedback
       Alert.alert('Sucesso', 'Usuário atualizado com sucesso', [

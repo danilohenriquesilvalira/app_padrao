@@ -191,8 +191,20 @@ export default function CreateUser({ navigation }: any) {
   const handleCreateUser = async () => {
     try {
       setLoading(true);
-      // Remove confirmPassword before sending to API
-      const { confirmPassword, ...userData } = user;
+      
+      // Converte os dados de camelCase para snake_case para o backend
+      const userData = {
+        username: user.username,
+        email: user.email,
+        password: user.password,
+        role: user.role,
+        is_active: user.isActive,
+        full_name: user.fullName,
+        phone: user.phone
+      };
+      
+      // Remove a confirmação de senha antes de enviar para a API
+      // (isso já é feito ao usar o objeto userData)
       
       await api.post('/api/admin/users', userData);
       
