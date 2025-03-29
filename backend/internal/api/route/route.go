@@ -5,6 +5,7 @@ import (
 	"app_padrao/internal/api/handler"
 	"app_padrao/internal/api/middleware"
 	"app_padrao/internal/domain"
+	"log"
 	"os"
 
 	"github.com/gin-gonic/gin"
@@ -23,11 +24,16 @@ func SetupRoutes(
 	// CORS - Configuração melhorada
 	router.Use(corsMiddleware())
 
-	// Criar diretório de uploads se não existir
-	os.MkdirAll("uploads/avatars", os.ModePerm)
+	// MODIFICAÇÃO: Usar o novo caminho D:\Avatar
+	avatarDir := "D:\\Avatar"
 
-	// Servir arquivos estáticos
-	router.Static("/avatars", "./uploads/avatars")
+	// Criar diretório de avatares se não existir
+	if err := os.MkdirAll(avatarDir, os.ModePerm); err != nil {
+		log.Printf("Erro ao criar diretório de avatares: %v", err)
+	}
+
+	// MODIFICAÇÃO: Servir arquivos estáticos do novo diretório
+	router.Static("/avatar", avatarDir)
 
 	// Rotas para verificação de saúde da API
 	router.GET("/health", func(c *gin.Context) {

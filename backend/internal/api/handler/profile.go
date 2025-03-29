@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -270,13 +271,26 @@ func (h *ProfileHandler) UploadAvatar(c *gin.Context) {
 
 	// Gerar nome único para o arquivo
 	filename := generateUniqueFilename(file.Filename)
-	dstPath := filepath.Join("uploads/avatars", filename)
+
+	// MODIFICAÇÃO: Usando o novo caminho D:\Avatar
+	avatarDir := "D:\\Avatar"
+
+	// Garantir que o diretório exista
+	if err := os.MkdirAll(avatarDir, os.ModePerm); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Falha ao criar diretório de avatares: %v", err)})
+		return
+	}
+
+	dstPath := filepath.Join(avatarDir, filename)
 
 	// Salvar o arquivo
 	if err := c.SaveUploadedFile(file, dstPath); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Falha ao salvar imagem"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Falha ao salvar imagem: %v", err)})
 		return
 	}
+
+	// MODIFICAÇÃO: Nova URL para o avatar
+	avatarURL := fmt.Sprintf("/avatar/%s", filename)
 
 	// Atualizar o avatar_url no perfil
 	profile, err := h.profileService.GetByUserID(userID.(int))
@@ -284,7 +298,7 @@ func (h *ProfileHandler) UploadAvatar(c *gin.Context) {
 		// Se não existir perfil, criar um novo
 		profile = domain.Profile{
 			UserID:                  userID.(int),
-			AvatarURL:               fmt.Sprintf("/avatars/%s", filename),
+			AvatarURL:               avatarURL,
 			NotificationPreferences: map[string]bool{"email": true, "push": true, "sms": false},
 			Theme:                   "default",
 			FontSize:                "medium",
@@ -294,7 +308,7 @@ func (h *ProfileHandler) UploadAvatar(c *gin.Context) {
 		_, err = h.profileService.Create(profile)
 	} else {
 		// Atualizar o perfil existente
-		profile.AvatarURL = fmt.Sprintf("/avatars/%s", filename)
+		profile.AvatarURL = avatarURL
 		profile.UpdatedAt = time.Now()
 		err = h.profileService.Update(profile)
 	}
@@ -306,7 +320,7 @@ func (h *ProfileHandler) UploadAvatar(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "Avatar atualizado com sucesso",
-		"avatar_url": profile.AvatarURL,
+		"avatar_url": avatarURL,
 	})
 }
 
