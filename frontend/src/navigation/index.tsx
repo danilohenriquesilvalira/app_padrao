@@ -1,3 +1,4 @@
+// src/navigation/index.tsx
 import React from 'react';
 import { ActivityIndicator, View, TouchableOpacity, Text, StyleSheet } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
@@ -5,14 +6,28 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Feather } from '@expo/vector-icons';
 
+// Auth & Main Screens
 import Login from '../screens/Login';
 import Register from '../screens/Register';
 import Home from '../screens/Home';
 import Profile from '../screens/Profile';
 import Preferences from '../screens/Preferences';
+
+// Admin Screens
 import UserList from '../screens/Admin/UserList';
 import EditUser from '../screens/Admin/EditUser';
 import CreateUser from '../screens/Admin/CreateUser';
+
+// PLC Screens
+import PLCList from '../screens/Admin/PLC/PLCList';
+import CreatePLC from '../screens/Admin/PLC/CreatePLC';
+import EditPLC from '../screens/Admin/PLC/EditPLC';
+import PLCDetails from '../screens/Admin/PLC/PLCDetails';
+import PLCTags from '../screens/Admin/PLC/PLCTags';
+import CreatePLCTag from '../screens/Admin/PLC/CreatePLCTag';
+import EditPLCTag from '../screens/Admin/PLC/EditPLCTag';
+import WritePLCTag from '../screens/Admin/PLC/WritePLCTag';
+
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -120,6 +135,78 @@ function AdminStack() {
   );
 }
 
+// Create a new stack navigator for PLC screens
+function PLCStack() {
+  const { theme } = useTheme();
+  
+  // Unified header style for PLC section
+  const screenOptions = {
+    headerStyle: {
+      backgroundColor: theme.primary,
+      elevation: 0,
+      shadowOpacity: 0,
+      borderBottomWidth: 0,
+    },
+    headerTitleStyle: {
+      fontWeight: '600' as '600',
+    },
+    headerTintColor: '#fff',
+  };
+  
+  return (
+    <Stack.Navigator screenOptions={screenOptions}>
+      <Stack.Screen 
+        name="PLCList" 
+        component={PLCList} 
+        options={({ navigation }) => ({
+          title: 'PLCs',
+          headerRight: () => (
+            <HeaderButton 
+              icon="plus" 
+              onPress={() => navigation.navigate('CreatePLC')}
+            />
+          ),
+        })}
+      />
+      <Stack.Screen 
+        name="CreatePLC" 
+        component={CreatePLC} 
+        options={{ title: 'Novo PLC' }}
+      />
+      <Stack.Screen 
+        name="EditPLC" 
+        component={EditPLC} 
+        options={{ title: 'Editar PLC' }}
+      />
+      <Stack.Screen 
+        name="PLCDetails" 
+        component={PLCDetails} 
+        options={{ title: 'Detalhes do PLC' }}
+      />
+      <Stack.Screen 
+        name="PLCTags" 
+        component={PLCTags} 
+        options={{ title: 'Tags do PLC' }}
+      />
+      <Stack.Screen 
+        name="CreatePLCTag" 
+        component={CreatePLCTag} 
+        options={{ title: 'Nova Tag' }}
+      />
+      <Stack.Screen 
+        name="EditPLCTag" 
+        component={EditPLCTag} 
+        options={{ title: 'Editar Tag' }}
+      />
+      <Stack.Screen 
+        name="WritePLCTag" 
+        component={WritePLCTag} 
+        options={{ title: 'Escrever Valor' }}
+      />
+    </Stack.Navigator>
+  );
+}
+
 function MainTabs() {
   const { isAdmin } = useAuth();
   const { theme, isDarkMode } = useTheme();
@@ -135,7 +222,9 @@ function MainTabs() {
           } else if (route.name === 'Profile') {
             iconName = 'user';
           } else if (route.name === 'Admin') {
-            iconName = 'settings';
+            iconName = 'users';
+          } else if (route.name === 'PLC') {
+            iconName = 'cpu';
           }
           
           return <Feather name={iconName} size={size} color={color} />;
@@ -181,7 +270,15 @@ function MainTabs() {
         <Tab.Screen 
           name="Admin" 
           component={AdminStack} 
-          options={{ title: 'Admin', headerShown: false }}
+          options={{ title: 'Usuários', headerShown: false }}
+        />
+      )}
+      {/* PLC Tab - Only shown to admins */}
+      {isAdmin && (
+        <Tab.Screen 
+          name="PLC" 
+          component={PLCStack} 
+          options={{ title: 'PLCs', headerShown: false }}
         />
       )}
     </Tab.Navigator>
