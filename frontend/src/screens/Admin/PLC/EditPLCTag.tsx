@@ -10,10 +10,11 @@ import {
   Switch,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator
+  ActivityIndicator,
+  TouchableOpacity
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, StackActions } from '@react-navigation/native';
 import { useTheme } from '../../../contexts/ThemeContext';
 import Input from '../../../components/Input';
 import Button from '../../../components/Button';
@@ -26,7 +27,7 @@ interface RouteParams {
 
 const EditPLCTag = () => {
   const { theme, isDarkMode } = useTheme();
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const route = useRoute();
   const { plcId, tagId } = route.params as RouteParams;
   
@@ -524,7 +525,8 @@ const EditPLCTag = () => {
                         setLoading(true);
                         await plcApi.deleteTag(tagId);
                         Alert.alert('Sucesso', 'Tag excluída com sucesso!');
-                        (navigation as any).navigate('PLCTags', { plcId });
+                        // Use dispatch instead of navigate for more predictable navigation
+                        navigation.dispatch(StackActions.replace('PLCTags', { plcId }));
                       } catch (error) {
                         console.error('Erro ao excluir tag:', error);
                         Alert.alert('Erro', 'Não foi possível excluir a tag.');

@@ -27,7 +27,7 @@ interface RouteParams {
 
 const PLCDetails = () => {
   const { theme, isDarkMode } = useTheme();
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const route = useRoute();
   const { plcId } = route.params as RouteParams;
   
@@ -210,14 +210,14 @@ const PLCDetails = () => {
             <View style={styles.actionsContainer}>
               <Button
                 title="Editar PLC"
-                onPress={() => navigation.navigate('EditPLC' as never, { plcId: plc.id } as never)}
+                onPress={() => navigation.navigate('EditPLC', { plcId: plc.id })}
                 variant="outline"
                 icon={<Feather name="edit-2" size={16} color={theme.primary} />}
               />
               
               <Button
                 title="Gerenciar Tags"
-                onPress={() => navigation.navigate('PLCTags' as never, { plcId: plc.id } as never)}
+                onPress={() => navigation.navigate('PLCTags', { plcId: plc.id })}
                 icon={<Feather name="tag" size={16} color="#fff" />}
               />
             </View>
@@ -303,7 +303,7 @@ const PLCDetails = () => {
                 </Text>
                 <Button
                   title="Adicionar Tag"
-                  onPress={() => navigation.navigate('CreatePLCTag' as never, { plcId: plc.id } as never)}
+                  onPress={() => navigation.navigate('CreatePLCTag', { plcId: plc.id })}
                   variant="outline"
                   size="small"
                   icon={<Feather name="plus" size={14} color={theme.primary} />}
@@ -319,10 +319,10 @@ const PLCDetails = () => {
                       styles.tagItem,
                       { borderBottomColor: isDarkMode ? theme.border : '#f0f0f0' }
                     ]}
-                    onPress={() => navigation.navigate('PLCTagDetails' as never, { 
+                    onPress={() => navigation.navigate('EditPLCTag', { 
                       plcId: plc.id,
                       tagId: tag.id 
-                    } as never)}
+                    })}
                     activeOpacity={0.7}
                   >
                     <View style={styles.tagInfoContainer}>
@@ -365,7 +365,7 @@ const PLCDetails = () => {
                 {tags.length > 3 && (
                   <TouchableOpacity 
                     style={styles.viewAllButton}
-                    onPress={() => navigation.navigate('PLCTags' as never, { plcId: plc.id } as never)}
+                    onPress={() => navigation.navigate('PLCTags', { plcId: plc.id })}
                   >
                     <Text style={[styles.viewAllText, { color: theme.primary }]}>
                       Ver todas as {tags.length} tags

@@ -14,14 +14,25 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
 import { useTheme } from '../../../contexts/ThemeContext';
 import Input from '../../../components/Input';
 import Button from '../../../components/Button';
 import plcApi from '../../../services/plcApi';
 
+// Define the navigation param list types
+type PLCStackParamList = {
+  PLCList: undefined;
+  CreatePLC: undefined;
+  EditPLC: { plcId: number };
+  // Add other screens as needed
+};
+
+type NavigationProp = StackNavigationProp<PLCStackParamList>;
+
 const CreatePLC = () => {
   const { theme, isDarkMode } = useTheme();
-  const navigation = useNavigation();
+  const navigation = useNavigation<NavigationProp>();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -279,7 +290,18 @@ const CreatePLC = () => {
         </Animated.View>
 
         <View style={styles.helpSection}>
-          <TouchableOpacity style={styles.helpButton}>
+          <TouchableOpacity 
+            style={styles.helpButton}
+            // Fix the Type error by typing the navigation properly
+            onPress={() => {
+              // You can add a help screen navigation here if needed
+              // For now, just show an alert
+              Alert.alert(
+                "Ajuda",
+                "Para configurar um PLC Siemens, você precisa fornecer o IP, Rack e Slot corretos. Consulte a documentação do seu PLC para mais detalhes."
+              );
+            }}
+          >
             <Feather name="help-circle" size={16} color={theme.primary} />
             <Text style={[styles.helpText, { color: theme.primary }]}>
               Como configurar um PLC Siemens?
