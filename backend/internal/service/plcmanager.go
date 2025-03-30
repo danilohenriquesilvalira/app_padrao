@@ -154,6 +154,7 @@ func (m *PLCManager) runStatsCollector(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+
 		case <-ticker.C:
 			m.updateStats()
 		}
@@ -311,7 +312,8 @@ func (p *PLCConnection) IsActive() bool {
 }
 
 // ReadTag lê uma tag do PLC
-func (p *PLCConnection) ReadTag(dbNumber, byteOffset, bitOffset int, dataType string) (interface{}, error) {
+// CORRIGIDO: Ordem correta dos parâmetros (dataType antes de bitOffset)
+func (p *PLCConnection) ReadTag(dbNumber int, byteOffset int, dataType string, bitOffset int) (interface{}, error) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
@@ -400,7 +402,8 @@ func (p *PLCConnection) ReadTag(dbNumber, byteOffset, bitOffset int, dataType st
 }
 
 // WriteTag escreve uma tag no PLC
-func (p *PLCConnection) WriteTag(dbNumber, byteOffset, bitOffset int, dataType string, value interface{}) error {
+// CORRIGIDO: Agora aceita bitOffset como parâmetro separado
+func (p *PLCConnection) WriteTag(dbNumber int, byteOffset int, dataType string, bitOffset int, value interface{}) error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
@@ -422,9 +425,9 @@ func (p *PLCConnection) WriteTag(dbNumber, byteOffset, bitOffset int, dataType s
 
 		// Modifica o bit específico
 		if boolValue {
-			byteAtual |= (1 << bitOffset) // Ativa o bit
+			byteAtual |= (1 << uint(bitOffset)) // Ativa o bit
 		} else {
-			byteAtual &= ^(1 << bitOffset) // Desativa o bit
+			byteAtual &= ^(1 << uint(bitOffset)) // Desativa o bit
 		}
 
 		// Em um cenário real, escreveria o byte modificado
@@ -628,12 +631,15 @@ func (m *PLCManager) monitorPLCTags(ctx context.Context, plcConfig domain.PLC, c
 					updatedValues := make([]domain.TagValue, 0, len(tags))
 
 					for _, tag := range tags {
-						// Ler o valor atual
+						// Converter ByteOffset de float64 para int
+						byteOffset := int(tag.ByteOffset)
+
+						// CORRIGIDO: Ordem correta dos parâmetros (dataType antes de bitOffset)
 						value, err := conn.ReadTag(
 							tag.DBNumber,
-							tag.ByteOffset,
-							tag.BitOffset,
+							byteOffset,
 							tag.DataType,
+							tag.BitOffset,
 						)
 
 						if err != nil {
@@ -712,7 +718,7 @@ func (m *PLCManager) monitorPLCTags(ctx context.Context, plcConfig domain.PLC, c
 									tag.DataType,
 									valorFormatado,
 									tag.DBNumber,
-									tag.ByteOffset,
+									byteOffset,
 									tag.BitOffset)
 							}
 						}
@@ -758,6 +764,7 @@ func (m *PLCManager) GetConnectionByPLCID(plcID int) (*PLCConnection, error) {
 }
 
 // WriteTagByName encontra uma tag pelo nome e escreve um valor nela
+// CORRIGIDO: Ordem correta dos parâmetros ao chamar WriteTag
 func (m *PLCManager) WriteTagByName(tagName string, value interface{}) error {
 	log.Printf("Solicitação para escrever na tag '%s': %v", tagName, value)
 
@@ -779,25 +786,23 @@ func (m *PLCManager) WriteTagByName(tagName string, value interface{}) error {
 		return fmt.Errorf("tag '%s' não permite escrita", tagName)
 	}
 
-	// Converter valor para o tipo correto
-	convertedValue, err := convertValue(value, tag.DataType)
-	if err != nil {
-		return fmt.Errorf("erro ao converter valor: %v", err)
-	}
-
 	// Buscar conexão com o PLC
 	conn, err := m.GetConnectionByPLCID(tag.PLCID)
 	if err != nil {
 		return fmt.Errorf("erro de conexão: %v", err)
 	}
 
+	// Converter ByteOffset para inteiro
+	byteOffset := int(tag.ByteOffset)
+
 	// Escrever o valor na tag
+	// CORRIGIDO: Ordem correta dos parâmetros (dataType antes de bitOffset)
 	if err := conn.WriteTag(
 		tag.DBNumber,
-		tag.ByteOffset,
-		tag.BitOffset,
+		byteOffset,
 		tag.DataType,
-		convertedValue,
+		tag.BitOffset,
+		value,
 	); err != nil {
 		// Incrementar contador de erros
 		m.statsMutex.Lock()
@@ -812,7 +817,7 @@ func (m *PLCManager) WriteTagByName(tagName string, value interface{}) error {
 	}
 
 	// Atualizar o valor no cache para feedback imediato
-	err = m.cache.SetTagValue(tag.PLCID, tag.ID, convertedValue)
+	err = m.cache.SetTagValue(tag.PLCID, tag.ID, value)
 	if err != nil {
 		log.Printf("Erro ao atualizar cache: %v", err)
 	}
@@ -824,79 +829,4 @@ func (m *PLCManager) WriteTagByName(tagName string, value interface{}) error {
 
 	log.Printf("Valor escrito com sucesso na tag %s", tagName)
 	return nil
-}
-
-// convertValue converte um valor para o tipo correto
-func convertValue(value interface{}, dataType string) (interface{}, error) {
-	switch dataType {
-	case "real":
-		switch v := value.(type) {
-		case float64:
-			return float32(v), nil
-		case float32:
-			return v, nil
-		case int:
-			return float32(v), nil
-		case string:
-			var f float64
-			if _, err := fmt.Sscanf(v, "%f", &f); err != nil {
-				return nil, fmt.Errorf("erro ao converter string para float: %v", err)
-			}
-			return float32(f), nil
-		default:
-			return nil, fmt.Errorf("não foi possível converter %T para float32", value)
-		}
-
-	case "int":
-		switch v := value.(type) {
-		case float64:
-			return int16(v), nil
-		case int:
-			return int16(v), nil
-		case string:
-			var i int
-			if _, err := fmt.Sscanf(v, "%d", &i); err != nil {
-				return nil, fmt.Errorf("erro ao converter string para int: %v", err)
-			}
-			return int16(i), nil
-		default:
-			return nil, fmt.Errorf("não foi possível converter %T para int16", value)
-		}
-
-	case "word":
-		switch v := value.(type) {
-		case float64:
-			return uint16(v), nil
-		case int:
-			return uint16(v), nil
-		case string:
-			var i int
-			if _, err := fmt.Sscanf(v, "%d", &i); err != nil {
-				return nil, fmt.Errorf("erro ao converter string para uint16: %v", err)
-			}
-			return uint16(i), nil
-		default:
-			return nil, fmt.Errorf("não foi possível converter %T para uint16", value)
-		}
-
-	case "bool":
-		switch v := value.(type) {
-		case bool:
-			return v, nil
-		case float64:
-			return v != 0, nil
-		case int:
-			return v != 0, nil
-		case string:
-			return v == "true" || v == "1" || v == "yes", nil
-		default:
-			return nil, fmt.Errorf("não foi possível converter %T para bool", value)
-		}
-
-	case "string":
-		return fmt.Sprint(value), nil
-
-	default:
-		return nil, fmt.Errorf("tipo não suportado: %s", dataType)
-	}
 }
