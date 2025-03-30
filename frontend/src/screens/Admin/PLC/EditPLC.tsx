@@ -362,7 +362,7 @@ const EditPLC = () => {
         >
           <Button
             title="Gerenciar Tags"
-            onPress={() => navigation.navigate('PLCTags', { plcId })}
+            onPress={() => (navigation as any).navigate('PLCTags', { plcId })}
             icon={<Feather name="tag" size={18} color="#fff" />}
             full
             style={styles.manageTags}
@@ -393,7 +393,7 @@ const EditPLC = () => {
                         setLoading(true);
                         await plcApi.deletePLC(plcId);
                         Alert.alert('Sucesso', 'PLC excluído com sucesso!');
-                        navigation.navigate('PLCList');
+                        navigation.navigate('PLCList' as never);
                       } catch (error) {
                         console.error('Erro ao excluir PLC:', error);
                         Alert.alert('Erro', 'Não foi possível excluir o PLC.');

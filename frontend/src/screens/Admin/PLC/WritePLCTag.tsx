@@ -370,7 +370,7 @@ const WritePLCTag = () => {
           <Button
             title="Retornar às Tags"
             variant="outline"
-            onPress={() => navigation.navigate('PLCTags', { plcId })}
+            onPress={() => (navigation as any).navigate('PLCTags', { plcId })}
             icon={<Feather name="arrow-left" size={18} color={theme.primary} />}
             full
           />
