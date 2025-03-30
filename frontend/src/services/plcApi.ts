@@ -20,6 +20,7 @@ export interface PLCTag {
   description: string;
   db_number: number;
   byte_offset: number;
+  bit_offset: number;  // Novo campo adicionado
   data_type: string;  // "real", "int", "word", "bool", "string"
   scan_rate: number;  // em milissegundos
   monitor_changes: boolean;

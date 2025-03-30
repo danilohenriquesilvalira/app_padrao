@@ -146,6 +146,16 @@ func (s *PLCService) CreateTag(tag domain.PLCTag) (int, error) {
 		return 0, domain.ErrInvalidDataType
 	}
 
+	// Validar bit offset para tipo bool
+	if tag.DataType == "bool" {
+		if tag.BitOffset < 0 || tag.BitOffset > 7 {
+			return 0, fmt.Errorf("bit offset deve estar entre 0 e 7 para tipo bool")
+		}
+	} else {
+		// Para outros tipos de dados, o bit offset deve ser 0
+		tag.BitOffset = 0
+	}
+
 	// Verificar se o PLC existe
 	_, err := s.plcRepo.GetByID(tag.PLCID)
 	if err != nil {
@@ -176,6 +186,16 @@ func (s *PLCService) UpdateTag(tag domain.PLCTag) error {
 		// Tipos válidos
 	default:
 		return domain.ErrInvalidDataType
+	}
+
+	// Validar bit offset para tipo bool
+	if tag.DataType == "bool" {
+		if tag.BitOffset < 0 || tag.BitOffset > 7 {
+			return fmt.Errorf("bit offset deve estar entre 0 e 7 para tipo bool")
+		}
+	} else {
+		// Para outros tipos de dados, o bit offset deve ser 0
+		tag.BitOffset = 0
 	}
 
 	// Verificar se o PLC existe

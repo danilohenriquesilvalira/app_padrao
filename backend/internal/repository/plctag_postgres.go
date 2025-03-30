@@ -17,7 +17,7 @@ func NewPLCTagRepository(db *sql.DB) *PLCTagRepository {
 
 func (r *PLCTagRepository) GetByID(id int) (domain.PLCTag, error) {
 	query := `
-		SELECT id, plc_id, name, description, db_number, byte_offset, data_type,
+		SELECT id, plc_id, name, description, db_number, byte_offset, bit_offset, data_type,
 			   scan_rate, monitor_changes, can_write, active, created_at, updated_at
 		FROM plc_tags
 		WHERE id = $1
@@ -34,6 +34,7 @@ func (r *PLCTagRepository) GetByID(id int) (domain.PLCTag, error) {
 		&description,
 		&tag.DBNumber,
 		&tag.ByteOffset,
+		&tag.BitOffset,
 		&tag.DataType,
 		&tag.ScanRate,
 		&tag.MonitorChanges,
@@ -63,7 +64,7 @@ func (r *PLCTagRepository) GetByID(id int) (domain.PLCTag, error) {
 
 func (r *PLCTagRepository) GetByName(name string) ([]domain.PLCTag, error) {
 	query := `
-		SELECT id, plc_id, name, description, db_number, byte_offset, data_type,
+		SELECT id, plc_id, name, description, db_number, byte_offset, bit_offset, data_type,
 			   scan_rate, monitor_changes, can_write, active, created_at, updated_at
 		FROM plc_tags
 		WHERE name = $1
@@ -88,6 +89,7 @@ func (r *PLCTagRepository) GetByName(name string) ([]domain.PLCTag, error) {
 			&description,
 			&tag.DBNumber,
 			&tag.ByteOffset,
+			&tag.BitOffset,
 			&tag.DataType,
 			&tag.ScanRate,
 			&tag.MonitorChanges,
@@ -121,7 +123,7 @@ func (r *PLCTagRepository) GetByName(name string) ([]domain.PLCTag, error) {
 
 func (r *PLCTagRepository) GetPLCTags(plcID int) ([]domain.PLCTag, error) {
 	query := `
-		SELECT id, plc_id, name, description, db_number, byte_offset, data_type,
+		SELECT id, plc_id, name, description, db_number, byte_offset, bit_offset, data_type,
 			   scan_rate, monitor_changes, can_write, active, created_at, updated_at
 		FROM plc_tags
 		WHERE plc_id = $1
@@ -147,6 +149,7 @@ func (r *PLCTagRepository) GetPLCTags(plcID int) ([]domain.PLCTag, error) {
 			&description,
 			&tag.DBNumber,
 			&tag.ByteOffset,
+			&tag.BitOffset,
 			&tag.DataType,
 			&tag.ScanRate,
 			&tag.MonitorChanges,
@@ -181,10 +184,10 @@ func (r *PLCTagRepository) GetPLCTags(plcID int) ([]domain.PLCTag, error) {
 func (r *PLCTagRepository) Create(tag domain.PLCTag) (int, error) {
 	query := `
 		INSERT INTO plc_tags (
-			plc_id, name, description, db_number, byte_offset, data_type,
+			plc_id, name, description, db_number, byte_offset, bit_offset, data_type,
 			scan_rate, monitor_changes, can_write, active, created_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id
 	`
 
@@ -196,6 +199,7 @@ func (r *PLCTagRepository) Create(tag domain.PLCTag) (int, error) {
 		tag.Description,
 		tag.DBNumber,
 		tag.ByteOffset,
+		tag.BitOffset,
 		tag.DataType,
 		tag.ScanRate,
 		tag.MonitorChanges,
@@ -215,9 +219,9 @@ func (r *PLCTagRepository) Update(tag domain.PLCTag) error {
 	query := `
 		UPDATE plc_tags
 		SET plc_id = $1, name = $2, description = $3, db_number = $4, byte_offset = $5,
-			data_type = $6, scan_rate = $7, monitor_changes = $8, can_write = $9,
-			active = $10, updated_at = $11
-		WHERE id = $12
+			bit_offset = $6, data_type = $7, scan_rate = $8, monitor_changes = $9, can_write = $10,
+			active = $11, updated_at = $12
+		WHERE id = $13
 	`
 
 	result, err := r.db.Exec(
@@ -227,6 +231,7 @@ func (r *PLCTagRepository) Update(tag domain.PLCTag) error {
 		tag.Description,
 		tag.DBNumber,
 		tag.ByteOffset,
+		tag.BitOffset,
 		tag.DataType,
 		tag.ScanRate,
 		tag.MonitorChanges,

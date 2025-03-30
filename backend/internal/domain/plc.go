@@ -26,8 +26,9 @@ type PLCTag struct {
 	Description    string      `json:"description"`
 	DBNumber       int         `json:"db_number"`
 	ByteOffset     int         `json:"byte_offset"`
-	DataType       string      `json:"data_type"` // "real", "int", "word", "bool", "string"
-	ScanRate       int         `json:"scan_rate"` // em milissegundos
+	BitOffset      int         `json:"bit_offset"` // Novo campo para offset de bit (0-7)
+	DataType       string      `json:"data_type"`  // "real", "int", "word", "bool", "string"
+	ScanRate       int         `json:"scan_rate"`  // em milissegundos
 	MonitorChanges bool        `json:"monitor_changes"`
 	CanWrite       bool        `json:"can_write"`
 	Active         bool        `json:"active"`

@@ -162,6 +162,7 @@ const PLCTags = () => {
               <Feather name="database" size={12} color={theme.textSecondary} />
               <Text style={[styles.tagDetailText, { color: theme.textSecondary }]}>
                 DB{item.db_number}.{item.byte_offset}
+                {item.data_type === 'bool' ? `.${item.bit_offset}` : ''}
               </Text>
             </View>
             
@@ -207,7 +208,22 @@ const PLCTags = () => {
               </Text>
             </TouchableOpacity>
             
-            {/* Botão de escrita removido */}
+            {item.can_write && (
+              <TouchableOpacity
+                style={[styles.actionButton, { backgroundColor: `${theme.primary}15` }]}
+                onPress={() => navigation.navigate('WritePLCTag', { 
+                  plcId: plcId,
+                  tagName: item.name,
+                  dataType: item.data_type,
+                  bitOffset: item.bit_offset // Novo parâmetro
+                })}
+              >
+                <Feather name="edit-3" size={16} color={theme.primary} />
+                <Text style={[styles.actionText, { color: theme.primary }]}>
+                  Escrever
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         </TouchableOpacity>
       </Animated.View>

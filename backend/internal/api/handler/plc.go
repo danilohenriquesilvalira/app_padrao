@@ -172,6 +172,17 @@ func (h *PLCHandler) CreatePLCTag(c *gin.Context) {
 
 	tag.PLCID = plcID
 
+	// Validar bit offset para tipo bool
+	if tag.DataType == "bool" {
+		if tag.BitOffset < 0 || tag.BitOffset > 7 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Bit offset deve estar entre 0 e 7 para tipo bool"})
+			return
+		}
+	} else {
+		// Para outros tipos de dados, o bit offset deve ser 0
+		tag.BitOffset = 0
+	}
+
 	id, err := h.plcService.CreateTag(tag)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -199,6 +210,17 @@ func (h *PLCHandler) UpdatePLCTag(c *gin.Context) {
 	}
 
 	tag.ID = id
+
+	// Validar bit offset para tipo bool
+	if tag.DataType == "bool" {
+		if tag.BitOffset < 0 || tag.BitOffset > 7 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Bit offset deve estar entre 0 e 7 para tipo bool"})
+			return
+		}
+	} else {
+		// Para outros tipos de dados, o bit offset deve ser 0
+		tag.BitOffset = 0
+	}
 
 	if err := h.plcService.UpdateTag(tag); err != nil {
 		statusCode := http.StatusInternalServerError

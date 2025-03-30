@@ -39,6 +39,7 @@ const EditPLCTag = () => {
     description: '',
     db_number: '',
     byte_offset: '',
+    bit_offset: '0',  // Novo campo adicionado
     data_type: 'real',
     scan_rate: '',
     monitor_changes: true,
@@ -51,6 +52,7 @@ const EditPLCTag = () => {
     name: '',
     db_number: '',
     byte_offset: '',
+    bit_offset: '',  // Novo campo adicionado
     scan_rate: '',
   });
 
@@ -87,6 +89,7 @@ const EditPLCTag = () => {
         description: tagData.description || '',
         db_number: tagData.db_number.toString() || '',
         byte_offset: tagData.byte_offset.toString() || '',
+        bit_offset: tagData.bit_offset.toString() || '0',  // Novo campo
         data_type: tagData.data_type || 'real',
         scan_rate: tagData.scan_rate.toString() || '',
         monitor_changes: tagData.monitor_changes,
@@ -126,6 +129,9 @@ const EditPLCTag = () => {
           break;
         case 'byte_offset':
           updated.byte_offset = value;
+          break;
+        case 'bit_offset':
+          updated.bit_offset = value;
           break;
         case 'data_type':
           updated.data_type = value;
@@ -167,6 +173,23 @@ const EditPLCTag = () => {
       isValid = false;
     }
 
+    // Validate bit offset for boolean type
+    if (formData.data_type === 'bool') {
+      if (!formData.bit_offset.trim()) {
+        newErrors.bit_offset = 'Bit offset é obrigatório';
+        isValid = false;
+      } else {
+        const bitOffset = parseInt(formData.bit_offset);
+        if (isNaN(bitOffset)) {
+          newErrors.bit_offset = 'Bit offset deve ser um número';
+          isValid = false;
+        } else if (bitOffset < 0 || bitOffset > 7) {
+          newErrors.bit_offset = 'Bit offset deve estar entre 0 e 7';
+          isValid = false;
+        }
+      }
+    }
+
     // Validate scan rate
     if (!formData.scan_rate.trim()) {
       newErrors.scan_rate = 'Taxa de scan é obrigatória';
@@ -188,6 +211,7 @@ const EditPLCTag = () => {
       formData.description !== tag.description ||
       parseInt(formData.db_number) !== tag.db_number ||
       parseInt(formData.byte_offset) !== tag.byte_offset ||
+      parseInt(formData.bit_offset) !== tag.bit_offset ||  // Novo campo
       formData.data_type !== tag.data_type ||
       parseInt(formData.scan_rate) !== tag.scan_rate ||
       formData.monitor_changes !== tag.monitor_changes ||
@@ -211,6 +235,7 @@ const EditPLCTag = () => {
         description: formData.description,
         db_number: parseInt(formData.db_number),
         byte_offset: parseInt(formData.byte_offset),
+        bit_offset: parseInt(formData.bit_offset),  // Novo campo
         data_type: formData.data_type,
         scan_rate: parseInt(formData.scan_rate),
         monitor_changes: formData.monitor_changes,
@@ -367,15 +392,30 @@ const EditPLCTag = () => {
               </View>
             </View>
 
+            {/* Novo campo para Bit Offset que só aparece quando o tipo é bool */}
+            {formData.data_type === 'bool' && (
+              <Input
+                label="Bit Offset (0-7)"
+                icon="git-branch"
+                placeholder="Ex: 0"
+                value={formData.bit_offset}
+                onChangeText={(text) => handleInputChange('bit_offset', text)}
+                error={errors.bit_offset}
+                keyboardType="numeric"
+                helperText="Posição do bit dentro do byte (0-7)"
+                required
+              />
+            )}
+
             <View style={styles.formRow}>
               <Text style={[styles.pickerLabel, { color: theme.text }]}>
-                Tipo de Dados:
+                Tipo de Dados
               </Text>
               <View style={[
                 styles.dataTypePicker, 
                 { 
-                  backgroundColor: isDarkMode ? theme.surfaceVariant : '#f5f5f5',
                   borderColor: isDarkMode ? theme.border : '#e0e0e0',
+                  backgroundColor: isDarkMode ? theme.surfaceVariant : '#f5f5f5',
                 }
               ]}>
                 {['real', 'int', 'word', 'bool', 'string'].map(type => (
@@ -386,7 +426,14 @@ const EditPLCTag = () => {
                       formData.data_type === type && styles.dataTypeSelected,
                       formData.data_type === type && { backgroundColor: theme.primary }
                     ]}
-                    onPress={() => handleInputChange('data_type', type)}
+                    onPress={() => {
+                      // Resetar bit_offset para 0 se mudar de bool para outro tipo
+                      if (formData.data_type === 'bool' && type !== 'bool') {
+                        setFormData({...formData, data_type: type, bit_offset: '0'});
+                      } else {
+                        setFormData({...formData, data_type: type});
+                      }
+                    }}
                   >
                     <Text 
                       style={[

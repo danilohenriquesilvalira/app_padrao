@@ -28,7 +28,6 @@ type PLCStackParamList = {
   PLCTags: { plcId: number };
   CreatePLCTag: { plcId: number };
   EditPLCTag: { plcId: number; tagId: number };
-  // WritePLCTag foi removido
 };
 
 type CreatePLCTagRouteProp = RouteProp<PLCStackParamList, 'CreatePLCTag'>;
@@ -49,6 +48,7 @@ const CreatePLCTag = () => {
     description: '',
     db_number: '',
     byte_offset: '',
+    bit_offset: '0',  // Novo campo adicionado
     data_type: 'real',
     scan_rate: '1000',
     monitor_changes: true,
@@ -61,6 +61,7 @@ const CreatePLCTag = () => {
     name: '',
     db_number: '',
     byte_offset: '',
+    bit_offset: '',  // Novo campo para erros
     scan_rate: '',
   });
 
@@ -135,6 +136,23 @@ const CreatePLCTag = () => {
       isValid = false;
     }
 
+    // Validar bit offset para tipos booleanos
+    if (formData.data_type === 'bool') {
+      if (!formData.bit_offset.trim()) {
+        newErrors.bit_offset = 'Bit offset é obrigatório';
+        isValid = false;
+      } else {
+        const bitOffset = parseInt(formData.bit_offset);
+        if (isNaN(bitOffset)) {
+          newErrors.bit_offset = 'Deve ser um número';
+          isValid = false;
+        } else if (bitOffset < 0 || bitOffset > 7) {
+          newErrors.bit_offset = 'Deve estar entre 0 e 7';
+          isValid = false;
+        }
+      }
+    }
+
     // Validate scan rate
     if (!formData.scan_rate.trim()) {
       newErrors.scan_rate = 'Taxa de atualização é obrigatória';
@@ -165,6 +183,7 @@ const CreatePLCTag = () => {
         description: formData.description,
         db_number: parseInt(formData.db_number),
         byte_offset: parseInt(formData.byte_offset),
+        bit_offset: parseInt(formData.bit_offset),  // Convertido para número
         data_type: formData.data_type,
         scan_rate: parseInt(formData.scan_rate),
         monitor_changes: formData.monitor_changes,
@@ -179,7 +198,6 @@ const CreatePLCTag = () => {
         'Tag cadastrada com sucesso!',
         [{ 
           text: 'OK', 
-          // Fix error 2: Use properly typed navigation
           onPress: () => navigation.navigate('PLCTags', { plcId }) 
         }]
       );
@@ -339,6 +357,21 @@ const CreatePLCTag = () => {
                 />
               </View>
             </View>
+
+            {/* Novo campo para Bit Offset que só aparece quando o tipo é bool */}
+            {formData.data_type === 'bool' && (
+              <Input
+                label="Bit Offset (0-7)"
+                icon="git-branch"
+                placeholder="Ex: 0"
+                value={formData.bit_offset}
+                onChangeText={(text) => handleInputChange('bit_offset', text)}
+                error={errors.bit_offset}
+                keyboardType="numeric"
+                helperText="Posição do bit dentro do byte (0-7)"
+                required
+              />
+            )}
           </View>
 
           <View style={styles.formSection}>
@@ -446,7 +479,7 @@ const CreatePLCTag = () => {
             onPress={() => {
               Alert.alert(
                 "Configuração de Tags",
-                "Para configurar tags em um PLC Siemens, você precisa conhecer o número do DB (Data Block) e o Byte Offset da variável. Consulte a documentação do seu PLC para mais detalhes."
+                "Para configurar tags em um PLC Siemens, você precisa conhecer o número do DB (Data Block), o Byte Offset e, para tipos booleanos, o Bit Offset (0-7) da variável. Consulte a documentação do seu PLC para mais detalhes."
               );
             }}
           >

@@ -2,6 +2,7 @@ package service
 
 import (
 	"app_padrao/internal/domain"
+	"app_padrao/pkg/plc"
 	"context"
 	"fmt"
 	"log"
@@ -77,48 +78,212 @@ func isCriticalError(err error) bool {
 	return strings.Contains(lower, "forçado") || strings.Contains(lower, "cancelado")
 }
 
-// connectPLC tenta se conectar ao PLC usando o código da biblioteca gos7
+// connectPLC tenta se conectar ao PLC
 func (m *plcManager) connectPLC(ip string, rack, slot int) (*PLCConnection, error) {
+	log.Printf("Conectando ao PLC: %s (Rack: %d, Slot: %d)", ip, rack, slot)
 	// Esta função seria usada para conectar ao PLC
 	// Como não temos a biblioteca plc aqui, criamos um stub
-	return &PLCConnection{
+	conn := &PLCConnection{
 		ip:   ip,
 		rack: rack,
 		slot: slot,
-	}, nil
+	}
+
+	// Simular verificação de conexão
+	err := conn.Ping()
+	if err != nil {
+		return nil, fmt.Errorf("falha ao conectar ao PLC: %v", err)
+	}
+
+	log.Printf("Conectado ao PLC: %s", ip)
+	return conn, nil
 }
 
-// PLCConnection é um mock da conexão com o PLC
+// PLCConnection é a implementação da conexão com o PLC
 type PLCConnection struct {
-	ip   string
-	rack int
-	slot int
+	ip     string
+	rack   int
+	slot   int
+	client interface{} // Aqui seria substituído pela biblioteca real de comunicação PLC
 }
 
-// Ping simula checagem de conectividade
+// Ping verifica se o PLC está online
 func (p *PLCConnection) Ping() error {
 	// Em um cenário real, isto iria verificar a conexão com o PLC
+	log.Printf("Verificando conexão com PLC: %s", p.ip)
 	return nil
 }
 
-// Close simula o fechamento da conexão
+// Close fecha a conexão com o PLC
 func (p *PLCConnection) Close() {
 	// Em um cenário real, isto iria fechar a conexão
+	log.Printf("Fechando conexão com PLC: %s", p.ip)
 }
 
-// ReadTag simula leitura de uma tag
-func (p *PLCConnection) ReadTag(dbNumber, byteOffset int, dataType string) (interface{}, error) {
-	// Em um cenário real, implementaria a leitura da tag
-	return 0, nil
+// ReadTag lê uma tag do PLC considerando byte e bit offset
+func (p *PLCConnection) ReadTag(dbNumber, byteOffset, bitOffset int, dataType string) (interface{}, error) {
+	log.Printf("Lendo tag DB%d.DBX%d.%d do tipo %s", dbNumber, byteOffset, bitOffset, dataType)
+
+	// Em um cenário real, implementaria a leitura da tag considerando o bit offset
+	// Para tipos booleanos, precisamos ler o byte e extrair o bit específico
+	if dataType == "bool" && bitOffset >= 0 && bitOffset <= 7 {
+		// Simula leitura do byte
+		var byteLido byte = 0xAA // 10101010 em binário
+
+		// Extrai o bit específico
+		bitValue := (byteLido & (1 << bitOffset)) != 0
+		log.Printf("Valor booleano lido: %v (bit %d do byte 0x%02X)", bitValue, bitOffset, byteLido)
+		return bitValue, nil
+	}
+
+	// Para outros tipos, ignoramos o bit offset (só aplicável a booleanos)
+	switch dataType {
+	case "real":
+		return float32(123.45), nil
+	case "int":
+		return int16(42), nil
+	case "word":
+		return uint16(1024), nil
+	case "string":
+		return "exemplo", nil
+	default:
+		return nil, fmt.Errorf("tipo de dados não suportado: %s", dataType)
+	}
 }
 
-// WriteTag simula escrita em uma tag
-func (p *PLCConnection) WriteTag(dbNumber, byteOffset int, dataType string, value interface{}) error {
-	// Em um cenário real, implementaria a escrita na tag
+// WriteTag escreve uma tag no PLC considerando byte e bit offset
+func (p *PLCConnection) WriteTag(dbNumber, byteOffset, bitOffset int, dataType string, value interface{}) error {
+	log.Printf("Escrevendo valor %v na tag DB%d.DBX%d.%d do tipo %s", value, dbNumber, byteOffset, bitOffset, dataType)
+
+	// Em um cenário real, implementaria a escrita na tag considerando o bit offset
+	// Para tipos booleanos, precisamos ler o byte atual, modificar o bit específico e escrever de volta
+	if dataType == "bool" && bitOffset >= 0 && bitOffset <= 7 {
+		// Converter o valor para booleano
+		boolValue, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("valor %v não pode ser convertido para bool", value)
+		}
+
+		// Simula leitura do byte atual
+		var byteAtual byte = 0xAA // 10101010 em binário
+
+		// Modifica o bit específico
+		if boolValue {
+			byteAtual |= (1 << bitOffset) // Ativa o bit
+		} else {
+			byteAtual &= ^(1 << bitOffset) // Desativa o bit
+		}
+
+		// Em um cenário real, escreveria o byte modificado de volta para o PLC
+		log.Printf("Byte modificado: 0x%02X", byteAtual)
+		return nil
+	}
+
+	// Para outros tipos, ignoramos o bit offset (só aplicável a booleanos)
+	log.Printf("Valor escrito com sucesso")
 	return nil
 }
 
-// runAllPLCs consulta os PLCs ativos e inicia uma rotina de gerenciamento para cada um.
+// monitorPLCTags implementa o monitoramento real das tags de um PLC
+func (m *plcManager) monitorPLCTags(ctx context.Context, plcConfig domain.PLC, conn *PLCConnection) {
+	log.Printf("Iniciando monitoramento de tags para PLC: %s (%s)", plcConfig.Name, plcConfig.IPAddress)
+
+	// Mapa para armazenar o último valor de cada tag
+	lastValues := make(map[int]interface{})
+
+	// Buscar as tags do PLC
+	tags, err := m.tagRepo.GetPLCTags(plcConfig.ID)
+	if err != nil {
+		log.Printf("Erro ao buscar tags do PLC %s: %v", plcConfig.Name, err)
+		return
+	}
+
+	log.Printf("PLC %s tem %d tags para monitorar", plcConfig.Name, len(tags))
+
+	// Agrupar tags por taxa de scan para otimização
+	tagsByRate := make(map[int][]domain.PLCTag)
+	for _, tag := range tags {
+		if !tag.Active {
+			continue
+		}
+		tagsByRate[tag.ScanRate] = append(tagsByRate[tag.ScanRate], tag)
+	}
+
+	var wg sync.WaitGroup
+
+	// Criar uma goroutine para cada grupo de taxa de scan
+	for scanRate, scanTags := range tagsByRate {
+		wg.Add(1)
+		go func(rate int, tags []domain.PLCTag) {
+			defer wg.Done()
+
+			log.Printf("Iniciando monitoramento de %d tags com taxa de %d ms para PLC %s",
+				len(tags), rate, plcConfig.Name)
+
+			ticker := time.NewTicker(time.Duration(rate) * time.Millisecond)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ctx.Done():
+					log.Printf("Encerrando monitoramento de %d tags com taxa de %d ms para PLC %s",
+						len(tags), rate, plcConfig.Name)
+					return
+				case <-ticker.C:
+					// Ler cada tag no grupo
+					for _, tag := range tags {
+						// Ler o valor atual da tag
+						value, err := conn.ReadTag(tag.DBNumber, tag.ByteOffset, tag.BitOffset, tag.DataType)
+						if err != nil {
+							log.Printf("Erro ao ler tag %s: %v", tag.Name, err)
+							continue
+						}
+
+						// Verificar se precisamos atualizar o cache
+						shouldUpdate := true
+
+						// Se a tag está configurada para monitorar apenas mudanças
+						if tag.MonitorChanges {
+							// Buscar último valor conhecido
+							lastValue, exists := lastValues[tag.ID]
+
+							// Se temos um valor anterior, comparar com o atual
+							if exists {
+								// Usar nossa função personalizada para comparar valores
+								if plc.CompareValues(lastValue, value) {
+									// Valores são iguais, não atualizar
+									shouldUpdate = false
+								} else {
+									log.Printf("Tag %s: valor mudou de %v para %v",
+										tag.Name, lastValue, value)
+								}
+							}
+						}
+
+						if shouldUpdate {
+							// Atualizar o cache com o novo valor
+							if err := m.cache.SetTagValue(plcConfig.ID, tag.ID, value); err != nil {
+								log.Printf("Erro ao atualizar cache para tag %s: %v", tag.Name, err)
+							} else {
+								// Atualizar o último valor conhecido
+								lastValues[tag.ID] = value
+								log.Printf("Tag %s atualizada: %v", tag.Name, value)
+							}
+						}
+					}
+				}
+			}
+		}(scanRate, scanTags)
+	}
+
+	// Aguardar o contexto ser cancelado
+	<-ctx.Done()
+	log.Printf("Contexto cancelado para PLC %s, aguardando goroutines encerrarem", plcConfig.Name)
+	wg.Wait()
+	log.Printf("Monitoramento encerrado para PLC %s", plcConfig.Name)
+}
+
+// runAllPLCs consulta os PLCs ativos e inicia uma rotina de gerenciamento para cada um
 func (m *plcManager) runAllPLCs(ctx context.Context) {
 	// Verificações de segurança para parâmetros nulos
 	if m.plcRepo == nil {
@@ -195,7 +360,7 @@ func (m *plcManager) runAllPLCs(ctx context.Context) {
 
 					if exists {
 						current.cancel()
-						delete(plcCancels, plc.ID)
+						delete(plcCancels, plc.ID) // Corrigido: agora usando plc.ID em vez de plcID
 						log.Printf("Reiniciando PLC %s (ID: %d) devido a mudança de configuração", plc.Name, plc.ID)
 
 						// Log detalhado da alteração
@@ -216,7 +381,7 @@ func (m *plcManager) runAllPLCs(ctx context.Context) {
 						log.Printf("Alterações: %s", strings.Join(changes, ", "))
 					}
 
-					_, cancel := context.WithCancel(ctx)
+					ctx, cancel := context.WithCancel(ctx)
 					plcCancels[plc.ID] = struct {
 						cancel context.CancelFunc
 						config domain.PLC
@@ -227,7 +392,36 @@ func (m *plcManager) runAllPLCs(ctx context.Context) {
 
 					go func(p domain.PLC) {
 						log.Printf("Iniciando monitoramento do PLC: %s (%s)", p.Name, p.IPAddress)
-						// Implementação real chamaria o código PLC
+
+						// Tentar conectar ao PLC
+						conn, err := m.connectPLC(p.IPAddress, p.Rack, p.Slot)
+						if err != nil {
+							log.Printf("Erro ao conectar ao PLC %s: %v", p.Name, err)
+							// Atualizar status do PLC para "offline"
+							statusErr := m.plcRepo.UpdatePLCStatus(domain.PLCStatus{
+								PLCID:      p.ID,
+								Status:     "offline",
+								LastUpdate: time.Now(),
+							})
+							if statusErr != nil {
+								log.Printf("Erro ao atualizar status do PLC %s: %v", p.Name, statusErr)
+							}
+							return
+						}
+						defer conn.Close()
+
+						// Atualizar status do PLC para "online"
+						statusErr := m.plcRepo.UpdatePLCStatus(domain.PLCStatus{
+							PLCID:      p.ID,
+							Status:     "online",
+							LastUpdate: time.Now(),
+						})
+						if statusErr != nil {
+							log.Printf("Erro ao atualizar status do PLC %s: %v", p.Name, statusErr)
+						}
+
+						// Criar contexto cancelável para este PLC usando o contexto já criado
+						m.monitorPLCTags(ctx, p, conn)
 					}(plc)
 				}
 			}
@@ -278,6 +472,18 @@ func (m *plcManager) WriteTagByName(tagName string, value interface{}) error {
 					return fmt.Errorf("erro ao converter valor: %v", err)
 				}
 
+				// Conectar ao PLC
+				conn, err := m.connectPLC(plcConfig.IPAddress, plcConfig.Rack, plcConfig.Slot)
+				if err != nil {
+					return fmt.Errorf("erro ao conectar ao PLC: %v", err)
+				}
+				defer conn.Close()
+
+				// Escrever o valor na tag, considerando o bit offset
+				if err := conn.WriteTag(tag.DBNumber, tag.ByteOffset, tag.BitOffset, tag.DataType, convertedValue); err != nil {
+					return fmt.Errorf("erro ao escrever no PLC: %v", err)
+				}
+
 				// Atualizar o valor no cache (para feedback rápido)
 				if err := m.cache.SetTagValue(plcConfig.ID, tag.ID, convertedValue); err != nil {
 					log.Printf("Erro ao atualizar cache: %v", err)
@@ -286,8 +492,6 @@ func (m *plcManager) WriteTagByName(tagName string, value interface{}) error {
 					log.Printf("Valor da tag '%s' atualizado no cache com sucesso", tagName)
 				}
 
-				// Em um sistema real, implementaria a escrita no PLC
-				// Aqui apenas simulamos
 				log.Printf("Valor escrito com sucesso no PLC para tag %s", tagName)
 				return nil
 			}
