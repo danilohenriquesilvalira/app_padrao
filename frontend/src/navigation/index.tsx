@@ -26,7 +26,7 @@ import PLCDetails from '../screens/Admin/PLC/PLCDetails';
 import PLCTags from '../screens/Admin/PLC/PLCTags';
 import CreatePLCTag from '../screens/Admin/PLC/CreatePLCTag';
 import EditPLCTag from '../screens/Admin/PLC/EditPLCTag';
-import WritePLCTag from '../screens/Admin/PLC/WritePLCTag';
+// WritePLCTag foi removido
 
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -198,11 +198,7 @@ function PLCStack() {
         component={EditPLCTag} 
         options={{ title: 'Editar Tag' }}
       />
-      <Stack.Screen 
-        name="WritePLCTag" 
-        component={WritePLCTag} 
-        options={{ title: 'Escrever Valor' }}
-      />
+      {/* A tela WritePLCTag foi removida */}
     </Stack.Navigator>
   );
 }

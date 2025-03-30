@@ -1,198 +1,86 @@
-// src/screens/Admin/PLC/WritePLCTag.tsx
+// src/screens/Admin/PLC/PLCTags.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
-  Alert,
-  Switch,
-  Animated,
+  FlatList,
   TouchableOpacity,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator
+  Alert,
+  ActivityIndicator,
+  RefreshControl,
+  Animated,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useTheme } from '../../../contexts/ThemeContext';
-import Input from '../../../components/Input';
 import Button from '../../../components/Button';
-import plcApi from '../../../services/plcApi';
+import plcApi, { PLCTag } from '../../../services/plcApi';
+import EmptyListSvg from '../../../components/EmptyListSvg';
 
 interface RouteParams {
   plcId: number;
-  tagName: string;
-  dataType: string;
 }
 
-const WritePLCTag = () => {
+const PLCTags = () => {
   const { theme, isDarkMode } = useTheme();
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const route = useRoute();
-  const { plcId, tagName, dataType } = route.params as RouteParams;
+  const { plcId } = route.params as RouteParams;
   
-  const [value, setValue] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [valueError, setValueError] = useState('');
-  const [boolValue, setBoolValue] = useState(false);
+  const [tags, setTags] = useState<PLCTag[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [plcName, setPlcName] = useState('');
   
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(30)).current;
-  
-  // History of values written to this tag (in-memory only)
-  const [valueHistory, setValueHistory] = useState<{value: string; timestamp: Date}[]>([]);
+  const slideAnim = useRef(new Animated.Value(50)).current;
 
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 500,
+        duration: 600,
         useNativeDriver: true,
       }),
       Animated.timing(slideAnim, {
         toValue: 0,
-        duration: 500,
+        duration: 600,
         useNativeDriver: true,
       })
     ]).start();
-  }, []);
+    
+    loadData();
+  }, [plcId]);
 
-  const validateValue = () => {
-    setValueError('');
-    
-    if (dataType === 'bool') {
-      // Boolean values are handled separately with a switch
-      return true;
-    }
-    
-    if (!value.trim()) {
-      setValueError('Valor é obrigatório');
-      return false;
-    }
-    
-    switch (dataType) {
-      case 'real':
-        if (isNaN(parseFloat(value))) {
-          setValueError('Valor deve ser um número');
-          return false;
-        }
-        break;
-        
-      case 'int':
-      case 'word':
-        if (isNaN(parseInt(value))) {
-          setValueError('Valor deve ser um número inteiro');
-          return false;
-        }
-        break;
-        
-      case 'string':
-        // No specific validation for strings
-        break;
-        
-      default:
-        setValueError(`Tipo de dados ${dataType} não suportado`);
-        return false;
-    }
-    
-    return true;
-  };
-
-  const formatValueForDisplay = (val: any, type: string) => {
-    switch (type) {
-      case 'bool':
-        return val ? 'true' : 'false';
-      case 'real':
-        return typeof val === 'number' ? val.toFixed(2) : val;
-      default:
-        return String(val);
-    }
-  };
-
-  const handleWriteValue = async () => {
-    if (!validateValue()) {
-      return;
-    }
-    
+  const loadData = async () => {
     try {
       setLoading(true);
       
-      // Convert value based on data type
-      let convertedValue: any;
+      // Load PLC details to get name
+      const plcData = await plcApi.getPLC(plcId);
+      setPlcName(plcData.name);
       
-      switch (dataType) {
-        case 'real':
-          convertedValue = parseFloat(value);
-          break;
-          
-        case 'int':
-        case 'word':
-          convertedValue = parseInt(value);
-          break;
-          
-        case 'bool':
-          convertedValue = boolValue;
-          break;
-          
-        case 'string':
-          convertedValue = value;
-          break;
-          
-        default:
-          throw new Error(`Tipo de dados ${dataType} não suportado`);
-      }
-      
-      await plcApi.writeTagValue(tagName, convertedValue);
-      
-      // Add to history
-      setValueHistory([
-        { value: formatValueForDisplay(convertedValue, dataType), timestamp: new Date() },
-        ...valueHistory
-      ].slice(0, 5)); // Keep only last 5
-      
-      Alert.alert(
-        'Sucesso',
-        `Valor escrito com sucesso na tag ${tagName}`,
-        [{ text: 'OK' }]
-      );
-      
-      // Clear the value field after successful write
-      if (dataType !== 'bool') {
-        setValue('');
-      }
+      // Load PLC tags
+      const tagsData = await plcApi.getPLCTags(plcId);
+      setTags(tagsData);
     } catch (error) {
-      console.error('Erro ao escrever valor:', error);
-      Alert.alert('Erro', 'Não foi possível escrever o valor na tag. Tente novamente.');
+      console.error('Erro ao carregar tags do PLC:', error);
+      Alert.alert('Erro', 'Não foi possível carregar as tags do PLC');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  // Get example placeholder based on data type
-  const getPlaceholder = () => {
-    switch (dataType) {
-      case 'real': return 'Ex: 23.5';
-      case 'int': return 'Ex: 42';
-      case 'word': return 'Ex: 100';
-      case 'string': return 'Ex: Motor ligado';
-      default: return 'Insira um valor';
-    }
+  const handleRefresh = () => {
+    setRefreshing(true);
+    loadData();
   };
 
-  // Get keyboard type based on data type
-  const getKeyboardType = () => {
-    switch (dataType) {
-      case 'real': return 'numeric';
-      case 'int':
-      case 'word': return 'number-pad';
-      default: return 'default';
-    }
-  };
-  
-  // Get color for data type
-  const getDataTypeColor = () => {
+  // Get background color for each data type
+  const getDataTypeColor = (dataType: string) => {
     switch (dataType) {
       case 'real': return '#2196F3';
       case 'int': return '#4CAF50';
@@ -203,333 +91,395 @@ const WritePLCTag = () => {
     }
   };
 
-  return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <ScrollView
-        style={[styles.container, { backgroundColor: theme.background }]}
-        contentContainerStyle={styles.contentContainer}
-        showsVerticalScrollIndicator={false}
+  const renderItem = ({ item }: { item: PLCTag }) => {
+    const dataTypeColor = getDataTypeColor(item.data_type);
+    
+    return (
+      <Animated.View
+        style={[
+          styles.tagCard,
+          { 
+            backgroundColor: isDarkMode ? theme.surface : '#fff',
+            borderColor: isDarkMode ? theme.border : '#e0e0e0'
+          },
+          { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }
+        ]}
       >
-        <Animated.View
-          style={[
-            styles.header,
-            {
-              opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }]
-            }
-          ]}
+        <TouchableOpacity
+          style={styles.tagContent}
+          onPress={() => navigation.navigate('EditPLCTag', { 
+            plcId: plcId,
+            tagId: item.id
+          })}
+          activeOpacity={0.7}
         >
-          <View style={styles.headerIconContainer}>
-            <Feather name="edit-3" size={32} color={theme.primary} />
-          </View>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>
-            Escrever Valor
-          </Text>
-          <View style={styles.tagInfoContainer}>
-            <Text style={[styles.tagName, { color: theme.text }]}>
-              {tagName}
-            </Text>
-            <View style={[
-              styles.dataTypeBadge,
-              { backgroundColor: getDataTypeColor() }
-            ]}>
-              <Text style={styles.dataTypeText}>
-                {dataType.toUpperCase()}
+          <View style={styles.tagHeader}>
+            <View style={styles.tagNameContainer}>
+              <Text style={[styles.tagName, { color: theme.text }]}>
+                {item.name}
               </Text>
-            </View>
-          </View>
-        </Animated.View>
-
-        <Animated.View
-          style={[
-            styles.formCard,
-            {
-              backgroundColor: isDarkMode ? theme.surface : '#fff',
-              borderColor: isDarkMode ? theme.border : '#e0e0e0',
-              opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }]
-            }
-          ]}
-        >
-          <View style={styles.sectionHeader}>
-            <Feather name="edit-2" size={20} color={theme.primary} />
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>
-              Valor para Escrita
-            </Text>
-          </View>
-          
-          {dataType === 'bool' ? (
-            <View style={styles.boolContainer}>
-              <Text style={[styles.boolLabel, { color: theme.text }]}>
-                Valor Booleano:
-              </Text>
-              <View style={styles.boolSwitchContainer}>
-                <Text style={[
-                  styles.boolValueText, 
-                  { color: boolValue ? theme.success : theme.error }
-                ]}>
-                  {boolValue ? 'TRUE' : 'FALSE'}
+              <View style={[
+                styles.dataTypeBadge, 
+                { backgroundColor: `${dataTypeColor}20`, borderColor: dataTypeColor }
+              ]}>
+                <Text style={[styles.dataTypeText, { color: dataTypeColor }]}>
+                  {item.data_type.toUpperCase()}
                 </Text>
-                <Switch
-                  value={boolValue}
-                  onValueChange={setBoolValue}
-                  trackColor={{ 
-                    false: isDarkMode ? '#555' : theme.error + '40', 
-                    true: theme.success + '40' 
-                  }}
-                  thumbColor={boolValue ? theme.success : theme.error}
-                  style={styles.boolSwitch}
-                />
               </View>
             </View>
-          ) : (
-            <Input
-              label={`Valor (${dataType.toUpperCase()})`}
-              icon="edit-2"
-              placeholder={getPlaceholder()}
-              value={value}
-              onChangeText={setValue}
-              error={valueError}
-              keyboardType={getKeyboardType()}
-              helperText={`Insira um valor do tipo ${dataType}`}
-              required
-            />
-          )}
-          
-          <View style={styles.warningContainer}>
-            <Feather name="alert-triangle" size={18} color={theme.warning} />
-            <Text style={[styles.warningText, { color: theme.warning }]}>
-              Atenção: Esta ação escreverá diretamente no PLC e pode impactar processos em execução.
-            </Text>
+            
+            <View style={[
+              styles.activeIndicator, 
+              { 
+                backgroundColor: item.active ? 
+                  'rgba(46, 213, 115, 0.2)' : 'rgba(235, 77, 75, 0.2)'
+              }
+            ]}>
+              <View style={[
+                styles.activeDot, 
+                { 
+                  backgroundColor: item.active ? 
+                    '#2ed573' : '#eb4d4b'
+                }
+              ]} />
+              <Text style={[
+                styles.activeText, 
+                { color: item.active ? '#2ed573' : '#eb4d4b' }
+              ]}>
+                {item.active ? 'Ativo' : 'Inativo'}
+              </Text>
+            </View>
           </View>
           
-          <Button
-            title="Escrever Valor"
-            onPress={handleWriteValue}
-            loading={loading}
-            icon={<Feather name="send" size={18} color="#fff" />}
-            full
-            style={styles.writeButton}
-          />
-        </Animated.View>
-        
-        {/* History section */}
-        {valueHistory.length > 0 && (
-          <Animated.View
-            style={[
-              styles.historyCard,
-              {
-                backgroundColor: isDarkMode ? theme.surface : '#fff',
-                borderColor: isDarkMode ? theme.border : '#e0e0e0',
-                opacity: fadeAnim,
-                transform: [{ translateY: slideAnim }]
-              }
-            ]}
-          >
-            <View style={styles.sectionHeader}>
-              <Feather name="clock" size={20} color={theme.primary} />
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                Histórico de Valores
+          {item.description && (
+            <Text style={[styles.tagDescription, { color: theme.textSecondary }]}>
+              {item.description}
+            </Text>
+          )}
+          
+          <View style={styles.tagDetails}>
+            <View style={styles.tagDetail}>
+              <Feather name="database" size={12} color={theme.textSecondary} />
+              <Text style={[styles.tagDetailText, { color: theme.textSecondary }]}>
+                DB{item.db_number}.{item.byte_offset}
               </Text>
             </View>
             
-            {valueHistory.map((item, index) => (
-              <View 
-                key={index}
-                style={[
-                  styles.historyItem,
-                  index < valueHistory.length - 1 && {
-                    borderBottomWidth: 1,
-                    borderBottomColor: isDarkMode ? theme.border : '#f0f0f0'
-                  }
-                ]}
-              >
-                <View style={styles.historyValue}>
-                  <Feather 
-                    name="check-circle" 
-                    size={16} 
-                    color={theme.success} 
-                    style={styles.historyIcon} 
-                  />
-                  <Text style={[styles.historyValueText, { color: theme.text }]}>
-                    {item.value}
-                  </Text>
-                </View>
-                <Text style={[styles.historyTime, { color: theme.textSecondary }]}>
-                  {formatTime(item.timestamp)}
+            <View style={styles.tagDetail}>
+              <Feather name="clock" size={12} color={theme.textSecondary} />
+              <Text style={[styles.tagDetailText, { color: theme.textSecondary }]}>
+                {item.scan_rate}ms
+              </Text>
+            </View>
+            
+            {item.can_write && (
+              <View style={styles.tagDetail}>
+                <Feather name="edit-2" size={12} color={theme.textSecondary} />
+                <Text style={[styles.tagDetailText, { color: theme.textSecondary }]}>
+                  Escrita
                 </Text>
               </View>
-            ))}
-          </Animated.View>
-        )}
-        
-        <View style={styles.buttonsContainer}>
-          <Button
-            title="Retornar às Tags"
-            variant="outline"
-            onPress={() => (navigation as any).navigate('PLCTags', { plcId })}
-            icon={<Feather name="arrow-left" size={18} color={theme.primary} />}
-            full
-          />
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
-  );
-};
+            )}
+          </View>
+          
+          {item.current_value !== undefined && (
+            <View style={styles.tagValueContainer}>
+              <Text style={[styles.tagValueLabel, { color: theme.textSecondary }]}>
+                Valor atual:
+              </Text>
+              <Text style={[styles.tagValue, { color: theme.primary }]}>
+                {String(item.current_value)}
+              </Text>
+            </View>
+          )}
+          
+          <View style={styles.actionsContainer}>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: `${theme.secondary}15` }]}
+              onPress={() => navigation.navigate('EditPLCTag', { 
+                plcId: plcId,
+                tagId: item.id
+              })}
+            >
+              <Feather name="edit-2" size={16} color={theme.secondary} />
+              <Text style={[styles.actionText, { color: theme.secondary }]}>
+                Editar
+              </Text>
+            </TouchableOpacity>
+            
+            {/* Botão de escrita removido */}
+          </View>
+        </TouchableOpacity>
+      </Animated.View>
+    );
+  };
 
-// Helper to format time
-const formatTime = (date: Date) => {
-  const hours = date.getHours().toString().padStart(2, '0');
-  const minutes = date.getMinutes().toString().padStart(2, '0');
-  const seconds = date.getSeconds().toString().padStart(2, '0');
-  return `${hours}:${minutes}:${seconds}`;
+  const renderEmptyComponent = () => (
+    <View style={styles.emptyContainer}>
+      <EmptyListSvg 
+        width={180} 
+        height={180}
+        primaryColor={theme.primary}
+        secondaryColor={theme.secondary}
+      />
+      <Text style={[styles.emptyTitle, { color: theme.text }]}>
+        Nenhuma tag configurada
+      </Text>
+      <Text style={[styles.emptyDescription, { color: theme.textSecondary }]}>
+        Adicione tags para monitorar variáveis do seu PLC
+      </Text>
+      <Button
+        title="Adicionar Tag"
+        onPress={() => navigation.navigate('CreatePLCTag', { plcId })}
+        icon={<Feather name="plus" size={18} color="#fff" />}
+        style={{ marginTop: 16 }}
+      />
+    </View>
+  );
+
+  if (loading && !refreshing && tags.length === 0) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={theme.primary} />
+        <Text style={[styles.loadingText, { color: theme.text }]}>
+          Carregando tags do PLC...
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <Animated.View 
+        style={[
+          styles.header,
+          { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }
+        ]}
+      >
+        <View style={styles.titleContainer}>
+          <View style={styles.titleIconContainer}>
+            <Feather name="tag" size={24} color={theme.primary} />
+          </View>
+          <View>
+            <Text style={[styles.title, { color: theme.text }]}>
+              Tags de Comunicação
+            </Text>
+            <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+              {plcName ? `PLC: ${plcName}` : 'Gerencie as variáveis do seu PLC'}
+            </Text>
+          </View>
+        </View>
+        
+        <Button
+          title="Nova Tag"
+          onPress={() => navigation.navigate('CreatePLCTag', { plcId })}
+          icon={<Feather name="plus" size={18} color="#fff" />}
+          style={styles.addButton}
+          full
+        />
+      </Animated.View>
+      
+      <FlatList
+        data={tags}
+        renderItem={renderItem}
+        keyExtractor={(item) => item.id.toString()}
+        contentContainerStyle={[
+          styles.listContent,
+          tags.length === 0 && styles.emptyListContent
+        ]}
+        ListEmptyComponent={renderEmptyComponent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={[theme.primary]}
+            tintColor={theme.primary}
+          />
+        }
+      />
+    </View>
+  );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  contentContainer: {
-    padding: 16,
-    paddingBottom: 40,
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
   },
   header: {
-    alignItems: 'center',
-    marginBottom: 24,
+    padding: 16,
+    paddingTop: 20,
   },
-  headerIconContainer: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+  titleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  titleIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: 'rgba(79, 91, 213, 0.1)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginRight: 16,
   },
-  headerTitle: {
-    fontSize: 22,
+  title: {
+    fontSize: 20,
     fontWeight: 'bold',
-    marginBottom: 12,
-    textAlign: 'center',
   },
-  tagInfoContainer: {
+  subtitle: {
+    fontSize: 14,
+    marginTop: 4,
+  },
+  addButton: {
+    marginTop: 8,
+  },
+  listContent: {
+    padding: 16,
+    paddingTop: 0,
+  },
+  emptyListContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
+  tagCard: {
+    borderRadius: 12,
+    marginBottom: 16,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    borderWidth: 1,
+  },
+  tagContent: {
+    flex: 1,
+  },
+  tagHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  tagNameContainer: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
   },
   tagName: {
     fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 8,
+    fontWeight: 'bold',
+    marginRight: 8,
+    marginBottom: 4,
   },
   dataTypeBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 16,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 4,
   },
   dataTypeText: {
-    color: 'white',
+    fontSize: 10,
     fontWeight: 'bold',
-    fontSize: 12,
   },
-  formCard: {
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    borderWidth: 1,
-  },
-  sectionHeader: {
+  activeIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
     marginLeft: 8,
   },
-  boolContainer: {
-    marginBottom: 20,
+  activeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 4,
   },
-  boolLabel: {
-    fontSize: 16,
+  activeText: {
+    fontSize: 10,
     fontWeight: '500',
+  },
+  tagDescription: {
+    fontSize: 14,
     marginBottom: 12,
   },
-  boolSwitchContainer: {
+  tagDetails: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 12,
+  },
+  tagDetail: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#f5f5f5',
-    padding: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
+    marginRight: 16,
+    marginBottom: 4,
   },
-  boolValueText: {
-    fontSize: 18,
-    fontWeight: 'bold',
+  tagDetailText: {
+    fontSize: 12,
+    marginLeft: 4,
   },
-  boolSwitch: {
-    transform: [{ scaleX: 1.2 }, { scaleY: 1.2 }],
-  },
-  warningContainer: {
+  tagValueContainer: {
     flexDirection: 'row',
-    backgroundColor: '#FFF8E1',
-    padding: 12,
-    borderRadius: 8,
-    marginVertical: 16,
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    marginBottom: 12,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
   },
-  warningText: {
+  tagValueLabel: {
     fontSize: 14,
-    marginLeft: 8,
-    flex: 1,
-  },
-  writeButton: {
-    marginTop: 8,
-  },
-  historyCard: {
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    borderWidth: 1,
-  },
-  historyItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
-  historyValue: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  historyIcon: {
     marginRight: 8,
   },
-  historyValueText: {
+  tagValue: {
     fontSize: 16,
+    fontWeight: 'bold',
+  },
+  actionsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 8,
+  },
+  actionText: {
+    fontSize: 12,
     fontWeight: '500',
+    marginLeft: 4,
   },
-  historyTime: {
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyDescription: {
     fontSize: 14,
-  },
-  buttonsContainer: {
-    marginTop: 8,
-    marginBottom: 16,
+    textAlign: 'center',
+    marginBottom: 24,
   },
 });
 
-export default WritePLCTag;
+export default PLCTags;

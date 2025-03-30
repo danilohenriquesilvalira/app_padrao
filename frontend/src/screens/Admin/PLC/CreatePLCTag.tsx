@@ -28,7 +28,7 @@ type PLCStackParamList = {
   PLCTags: { plcId: number };
   CreatePLCTag: { plcId: number };
   EditPLCTag: { plcId: number; tagId: number };
-  WritePLCTag: { plcId: number; tagName: string; dataType: string };
+  // WritePLCTag foi removido
 };
 
 type CreatePLCTagRouteProp = RouteProp<PLCStackParamList, 'CreatePLCTag'>;
