@@ -247,23 +247,24 @@ func isCriticalError(err error) bool {
 
 // PLCConnection é a implementação da conexão com o PLC
 type PLCConnection struct {
-	plcID   int
-	ip      string
-	rack    int
-	slot    int
-	client  interface{} // Substituir pela biblioteca real de comunicação PLC
-	active  bool
-	mutex   sync.Mutex
-	lastErr error
+	plcID    int
+	ip       string
+	rack     int
+	slot     int
+	s7Client *plc.Client // Cliente real S7
+	active   bool
+	mutex    sync.Mutex
+	lastErr  error
 }
 
 // NewPLCConnection cria uma nova conexão com um PLC
 func NewPLCConnection(plcID int, ip string, rack, slot int) *PLCConnection {
 	return &PLCConnection{
-		plcID: plcID,
-		ip:    ip,
-		rack:  rack,
-		slot:  slot,
+		plcID:  plcID,
+		ip:     ip,
+		rack:   rack,
+		slot:   slot,
+		active: false,
 	}
 }
 
@@ -272,16 +273,23 @@ func (p *PLCConnection) Connect() error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	// Em um cenário real, conectar-se ao PLC usando a biblioteca apropriada
+	// Fechar a conexão anterior se existir
+	if p.s7Client != nil {
+		p.s7Client.Close()
+		p.s7Client = nil
+	}
+
 	log.Printf("Conectando ao PLC %d: %s (Rack: %d, Slot: %d)", p.plcID, p.ip, p.rack, p.slot)
 
-	// Simular verificação de conexão
-	if err := p.Ping(); err != nil {
+	// Criar uma conexão real com o PLC usando o cliente S7
+	client, err := plc.NewClient(p.ip, p.rack, p.slot)
+	if err != nil {
 		p.lastErr = err
 		p.active = false
 		return fmt.Errorf("falha ao conectar ao PLC: %v", err)
 	}
 
+	p.s7Client = client
 	p.active = true
 	log.Printf("Conectado ao PLC %d: %s", p.plcID, p.ip)
 	return nil
@@ -289,9 +297,15 @@ func (p *PLCConnection) Connect() error {
 
 // Ping verifica se o PLC está online
 func (p *PLCConnection) Ping() error {
-	// Em um cenário real, verificaria a conexão com o PLC
-	log.Printf("Verificando conexão com PLC %d: %s", p.plcID, p.ip)
-	return nil
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	if p.s7Client == nil {
+		return fmt.Errorf("conexão com PLC não inicializada")
+	}
+
+	// Usar o método Ping real do cliente S7
+	return p.s7Client.Ping()
 }
 
 // Close fecha a conexão com o PLC
@@ -299,146 +313,45 @@ func (p *PLCConnection) Close() {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	// Em um cenário real, fecharia a conexão
-	log.Printf("Fechando conexão com PLC %d: %s", p.plcID, p.ip)
+	if p.s7Client != nil {
+		p.s7Client.Close()
+		p.s7Client = nil
+	}
 	p.active = false
+	log.Printf("Conexão com PLC %d fechada", p.plcID)
 }
 
 // IsActive verifica se a conexão está ativa
 func (p *PLCConnection) IsActive() bool {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
-	return p.active
+	return p.active && p.s7Client != nil
 }
 
-// ReadTag lê uma tag do PLC
-// CORRIGIDO: Ordem correta dos parâmetros (dataType antes de bitOffset)
+// ReadTag lê uma tag do PLC - IMPLEMENTAÇÃO REAL
 func (p *PLCConnection) ReadTag(dbNumber int, byteOffset int, dataType string, bitOffset int) (interface{}, error) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	if !p.active {
+	if !p.active || p.s7Client == nil {
 		return nil, fmt.Errorf("conexão com PLC não está ativa")
 	}
 
-	// Em um cenário real, aqui leríamos o valor do PLC físico usando o SDK apropriado
-	// Mas como está em modo de desenvolvimento/teste, vamos simular leituras mais realistas
-	// baseadas nos parâmetros reais fornecidos
-
-	// Log para depuração
-	log.Printf("Lendo do PLC: DB%d.DBX%d.%d [%s]", dbNumber, byteOffset, bitOffset, dataType)
-
-	// Simulação de valores baseados no DB, byte offset e bit offset reais
-	// Isso permite testar a lógica de endereçamento sem um PLC real
-
-	// Para DB11 que foi mencionada no exemplo
-	if dbNumber == 11 {
-		// Valores booleanos - simulando os bits exatos do byte 0
-		if dataType == "bool" && byteOffset == 0 {
-			switch bitOffset {
-			case 0: // bit (DBX0.0)
-				return false, nil
-			case 1: // bit_1 (DBX0.1)
-				return true, nil
-			case 2: // bit_2 (DBX0.2)
-				return true, nil
-			case 3: // bit_3 (DBX0.3)
-				return false, nil
-			case 4: // bit_4 (DBX0.4)
-				return false, nil
-			case 5: // bit_5 (DBX0.5)
-				return false, nil
-			case 6: // bit_6 (DBX0.6)
-				return false, nil
-			case 7: // bit_7 (DBX0.7)
-				return false, nil
-			}
-		}
-
-		// Valores booleanos do byte 1
-		if dataType == "bool" && byteOffset == 1 {
-			switch bitOffset {
-			case 0: // bit_8 (DBX1.0)
-				return false, nil
-			case 1: // bit_9 (DBX1.1)
-				return false, nil
-			}
-		}
-
-		// Valores inteiros
-		if dataType == "int" {
-			switch byteOffset {
-			case 2: // int (DBX2.0)
-				return int16(99), nil
-			case 4: // int_1 (DBX4.0)
-				return int16(0), nil
-			case 6: // int_2 (DBX6.0)
-				return int16(0), nil
-			case 8: // int_3 (DBX8.0)
-				return int16(0), nil
-			case 10: // int_4 (DBX10.0)
-				return int16(0), nil
-			case 12: // int_5 (DBX12.0)
-				return int16(0), nil
-			}
-		}
-	}
-
-	// Para outras DBs ou endereços não mapeados, use valores padrão
-	switch dataType {
-	case "bool":
-		return false, nil
-	case "real":
-		return float32(0.0), nil
-	case "int":
-		return int16(0), nil
-	case "word":
-		return uint16(0), nil
-	case "string":
-		return "", nil
-	default:
-		return nil, fmt.Errorf("tipo de dados não suportado: %s", dataType)
-	}
+	// Chamar o método ReadTag do cliente S7 real que se conecta ao PLC físico
+	return p.s7Client.ReadTag(dbNumber, byteOffset, dataType, bitOffset)
 }
 
-// WriteTag escreve uma tag no PLC
-// CORRIGIDO: Agora aceita bitOffset como parâmetro separado
+// WriteTag escreve uma tag no PLC - IMPLEMENTAÇÃO REAL
 func (p *PLCConnection) WriteTag(dbNumber int, byteOffset int, dataType string, bitOffset int, value interface{}) error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	if !p.active {
+	if !p.active || p.s7Client == nil {
 		return fmt.Errorf("conexão com PLC não está ativa")
 	}
 
-	// Em um cenário real, implementaria a escrita na tag
-	// considerando o bit offset para tipos booleanos
-	if dataType == "bool" && bitOffset >= 0 && bitOffset <= 7 {
-		// Converter o valor para booleano
-		boolValue, ok := value.(bool)
-		if !ok {
-			return fmt.Errorf("valor %v não pode ser convertido para bool", value)
-		}
-
-		// Simula leitura do byte atual
-		var byteAtual byte = 0xAA // 10101010 em binário
-
-		// Modifica o bit específico
-		if boolValue {
-			byteAtual |= (1 << uint(bitOffset)) // Ativa o bit
-		} else {
-			byteAtual &= ^(1 << uint(bitOffset)) // Desativa o bit
-		}
-
-		// Em um cenário real, escreveria o byte modificado
-		log.Printf("Byte modificado: 0x%02X", byteAtual)
-		return nil
-	}
-
-	// Para outros tipos, ignoramos o bit offset
-	log.Printf("Valor escrito com sucesso no DB%d.DBX%d.%d: %v",
-		dbNumber, byteOffset, bitOffset, value)
-	return nil
+	// Chamar o método WriteTag do cliente S7 real que se conecta ao PLC físico
+	return p.s7Client.WriteTag(dbNumber, byteOffset, dataType, bitOffset, value)
 }
 
 // runAllPLCs consulta os PLCs ativos e inicia uma rotina para cada um
@@ -634,7 +547,6 @@ func (m *PLCManager) monitorPLCTags(ctx context.Context, plcConfig domain.PLC, c
 						// Converter ByteOffset de float64 para int
 						byteOffset := int(tag.ByteOffset)
 
-						// CORRIGIDO: Ordem correta dos parâmetros (dataType antes de bitOffset)
 						value, err := conn.ReadTag(
 							tag.DBNumber,
 							byteOffset,
@@ -764,7 +676,6 @@ func (m *PLCManager) GetConnectionByPLCID(plcID int) (*PLCConnection, error) {
 }
 
 // WriteTagByName encontra uma tag pelo nome e escreve um valor nela
-// CORRIGIDO: Ordem correta dos parâmetros ao chamar WriteTag
 func (m *PLCManager) WriteTagByName(tagName string, value interface{}) error {
 	log.Printf("Solicitação para escrever na tag '%s': %v", tagName, value)
 
@@ -796,7 +707,6 @@ func (m *PLCManager) WriteTagByName(tagName string, value interface{}) error {
 	byteOffset := int(tag.ByteOffset)
 
 	// Escrever o valor na tag
-	// CORRIGIDO: Ordem correta dos parâmetros (dataType antes de bitOffset)
 	if err := conn.WriteTag(
 		tag.DBNumber,
 		byteOffset,

@@ -178,7 +178,6 @@ func (c *Client) GetConfig() ClientConfig {
 }
 
 // ReadTag lê um valor do PLC usando DBNumber, ByteOffset, dataType e BitOffset opcional (para bool)
-// CORRIGIDO: Ordem correta dos parâmetros: byteOffset, dataType, bitOffset
 func (c *Client) ReadTag(dbNumber int, byteOffset int, dataType string, bitOffset int) (interface{}, error) {
 	// Garante que a conexão está ativa antes de qualquer operação
 	if err := c.ensureConnected(); err != nil {
@@ -206,7 +205,7 @@ func (c *Client) ReadTag(dbNumber int, byteOffset int, dataType string, bitOffse
 		return nil, fmt.Errorf("tipo de dado não suportado: %s", dataType)
 	}
 
-	// Ler os bytes do PLC
+	// Ler os bytes do PLC - AQUI É O PONTO CRÍTICO: leitura real do PLC
 	buf := make([]byte, size)
 	err := c.client.AGReadDB(dbNumber, byteOffset, size, buf)
 
@@ -262,7 +261,6 @@ func (c *Client) ReadTag(dbNumber int, byteOffset int, dataType string, bitOffse
 }
 
 // WriteTag escreve um valor no PLC
-// CORRIGIDO: Agora aceita bitOffset como parâmetro explícito
 func (c *Client) WriteTag(dbNumber int, byteOffset int, dataType string, bitOffset int, value interface{}) error {
 	// Garante que a conexão está ativa antes de qualquer operação
 	if err := c.ensureConnected(); err != nil {
@@ -485,7 +483,7 @@ func (c *Client) WriteTag(dbNumber int, byteOffset int, dataType string, bitOffs
 		return fmt.Errorf("tipo de dado não suportado: %s", dataType)
 	}
 
-	// Escrever os bytes no PLC
+	// Escrever os bytes no PLC - AQUI É O PONTO CRÍTICO: escrita real no PLC
 	err := c.client.AGWriteDB(dbNumber, byteOffset, len(buf), buf)
 	if err != nil && isNetworkError(err) {
 		c.isConnected = false

@@ -172,14 +172,6 @@ func (s *PLCService) Create(plc domain.PLC) (int, error) {
 		// Continuar mesmo com erro no Redis
 	}
 
-	// Se o serviço de sincronização estiver ativo, sincronizar este PLC específico
-	if s.isRunning && s.syncService != nil {
-		err = s.syncService.SyncSpecificPLC(id)
-		if err != nil {
-			log.Printf("Aviso: erro ao sincronizar novo PLC: %v", err)
-		}
-	}
-
 	return id, nil
 }
 
@@ -211,14 +203,6 @@ func (s *PLCService) Update(plc domain.PLC) error {
 		_, err = s.redisPLCRepo.Create(plc)
 		if err != nil {
 			log.Printf("Aviso: erro ao criar PLC no Redis após falha na atualização: %v", err)
-		}
-	}
-
-	// Se o serviço de sincronização estiver ativo, sincronizar este PLC específico
-	if s.isRunning && s.syncService != nil {
-		err = s.syncService.SyncSpecificPLC(plc.ID)
-		if err != nil {
-			log.Printf("Aviso: erro ao sincronizar PLC atualizado: %v", err)
 		}
 	}
 
@@ -419,14 +403,6 @@ func (s *PLCService) CreateTag(tag domain.PLCTag) (int, error) {
 		log.Printf("Aviso: erro ao armazenar nova tag no Redis: %v", err)
 	}
 
-	// Se o serviço de sincronização estiver ativo, sincronizar esta tag específica
-	if s.isRunning && s.syncService != nil {
-		err = s.syncService.SyncSpecificTag(id)
-		if err != nil {
-			log.Printf("Aviso: erro ao sincronizar nova tag: %v", err)
-		}
-	}
-
 	return id, nil
 }
 
@@ -490,21 +466,12 @@ func (s *PLCService) UpdateTag(tag domain.PLCTag) error {
 		}
 	}
 
-	// Se o serviço de sincronização estiver ativo, sincronizar esta tag específica
-	if s.isRunning && s.syncService != nil {
-		err = s.syncService.SyncSpecificTag(tag.ID)
-		if err != nil {
-			log.Printf("Aviso: erro ao sincronizar tag atualizada: %v", err)
-		}
-	}
-
 	return nil
 }
 
 // DeleteTag remove uma tag
 func (s *PLCService) DeleteTag(id int) error {
 	// Buscar tag antes de excluir apenas para verificar se existe
-	// Use underscore para ignorar o valor retornado já que você só quer verificar se existe
 	_, err := s.GetTagByID(id)
 	if err != nil {
 		return err
@@ -545,7 +512,7 @@ func (s *PLCService) StartMonitoring() error {
 	}
 
 	s.isRunning = true
-	log.Println("Serviço de monitoramento de PLCs iniciado com sucesso")
+	log.Println("Serviço de monitoramento de PLCs iniciado")
 	return nil
 }
 
@@ -696,7 +663,7 @@ func (s *PLCService) StartDebugMonitor() {
 							tag.Name,
 							tag.DataType,
 							tag.DBNumber,
-							tag.ByteOffset,
+							int(tag.ByteOffset),
 							tag.BitOffset,
 							valorStr)
 					}
@@ -708,7 +675,7 @@ func (s *PLCService) StartDebugMonitor() {
 	}()
 }
 
-// VerifyTagAddresses verifica e corrige os endereços das tags incorretos
+// VerifyTagAddresses verifica se os endereços das tags correspondem aos do PLC real
 func (s *PLCService) VerifyTagAddresses() error {
 	log.Println("Verificando endereços das tags...")
 
@@ -728,60 +695,149 @@ func (s *PLCService) VerifyTagAddresses() error {
 			continue
 		}
 
-		// Verificar e corrigir cada tag
+		// Verificar cada tag
 		for _, tag := range tags {
-			// Validar tipo de dados
-			isValid := true
-			switch tag.DataType {
-			case "real", "int", "word", "bool", "string":
-				// Tipos válidos
-			default:
-				log.Printf("Tag %s (ID=%d): tipo de dados '%s' inválido, corrigindo para 'int'",
-					tag.Name, tag.ID, tag.DataType)
-				tag.DataType = "int"
-				isValid = false
-			}
+			// Exemplos para a DB11 conforme mostrado na captura de tela
+			if tag.DBNumber == 11 {
+				// Verificar nomes conhecidos e corrigir se necessário
+				needsUpdate := false
 
-			// Validar bit offset para tipo bool
-			if tag.DataType == "bool" {
-				if tag.BitOffset < 0 || tag.BitOffset > 7 {
-					log.Printf("Tag %s (ID=%d): bit offset %d inválido, corrigindo para 0",
-						tag.Name, tag.ID, tag.BitOffset)
+				if tag.Name == "bit" && (int(tag.ByteOffset) != 0 || tag.BitOffset != 0) {
+					tag.ByteOffset = 0
 					tag.BitOffset = 0
-					isValid = false
+					tag.DataType = "bool"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'bit' para DB11.DBX0.0")
 				}
-			} else {
-				// Para outros tipos de dados, o bit offset deve ser 0
-				if tag.BitOffset != 0 {
-					log.Printf("Tag %s (ID=%d): tipo %s não deve ter bit offset, corrigindo para 0",
-						tag.Name, tag.ID, tag.DataType)
+
+				if tag.Name == "bit_1" && (int(tag.ByteOffset) != 0 || tag.BitOffset != 1) {
+					tag.ByteOffset = 0
+					tag.BitOffset = 1
+					tag.DataType = "bool"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'bit_1' para DB11.DBX0.1")
+				}
+
+				if tag.Name == "bit_2" && (int(tag.ByteOffset) != 0 || tag.BitOffset != 2) {
+					tag.ByteOffset = 0
+					tag.BitOffset = 2
+					tag.DataType = "bool"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'bit_2' para DB11.DBX0.2")
+				}
+
+				if tag.Name == "bit_3" && (int(tag.ByteOffset) != 0 || tag.BitOffset != 3) {
+					tag.ByteOffset = 0
+					tag.BitOffset = 3
+					tag.DataType = "bool"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'bit_3' para DB11.DBX0.3")
+				}
+
+				if tag.Name == "bit_4" && (int(tag.ByteOffset) != 0 || tag.BitOffset != 4) {
+					tag.ByteOffset = 0
+					tag.BitOffset = 4
+					tag.DataType = "bool"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'bit_4' para DB11.DBX0.4")
+				}
+
+				if tag.Name == "bit_5" && (int(tag.ByteOffset) != 0 || tag.BitOffset != 5) {
+					tag.ByteOffset = 0
+					tag.BitOffset = 5
+					tag.DataType = "bool"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'bit_5' para DB11.DBX0.5")
+				}
+
+				if tag.Name == "bit_6" && (int(tag.ByteOffset) != 0 || tag.BitOffset != 6) {
+					tag.ByteOffset = 0
+					tag.BitOffset = 6
+					tag.DataType = "bool"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'bit_6' para DB11.DBX0.6")
+				}
+
+				if tag.Name == "bit_7" && (int(tag.ByteOffset) != 0 || tag.BitOffset != 7) {
+					tag.ByteOffset = 0
+					tag.BitOffset = 7
+					tag.DataType = "bool"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'bit_7' para DB11.DBX0.7")
+				}
+
+				if tag.Name == "bit_8" && (int(tag.ByteOffset) != 1 || tag.BitOffset != 0) {
+					tag.ByteOffset = 1
 					tag.BitOffset = 0
-					isValid = false
+					tag.DataType = "bool"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'bit_8' para DB11.DBX1.0")
 				}
-			}
 
-			// Validar DBNumber (mínimo 1)
-			if tag.DBNumber <= 0 {
-				log.Printf("Tag %s (ID=%d): DBNumber %d inválido, corrigindo para 1",
-					tag.Name, tag.ID, tag.DBNumber)
-				tag.DBNumber = 1
-				isValid = false
-			}
+				if tag.Name == "bit_9" && (int(tag.ByteOffset) != 1 || tag.BitOffset != 1) {
+					tag.ByteOffset = 1
+					tag.BitOffset = 1
+					tag.DataType = "bool"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'bit_9' para DB11.DBX1.1")
+				}
 
-			// Validar ByteOffset (deve ser >= 0)
-			if tag.ByteOffset < 0 {
-				log.Printf("Tag %s (ID=%d): ByteOffset %d inválido, corrigindo para 0",
-					tag.Name, tag.ID, tag.ByteOffset)
-				tag.ByteOffset = 0
-				isValid = false
-			}
+				// Inteiros
+				if tag.Name == "int" && (int(tag.ByteOffset) != 2 || tag.DataType != "int") {
+					tag.ByteOffset = 2
+					tag.BitOffset = 0
+					tag.DataType = "int"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'int' para DB11.DBX2.0")
+				}
 
-			// Se a tag tiver problemas, atualizar
-			if !isValid {
-				if err := s.UpdateTag(tag); err != nil {
-					log.Printf("Erro ao atualizar tag %s (ID=%d): %v", tag.Name, tag.ID, err)
-				} else {
-					log.Printf("Tag %s atualizada com sucesso", tag.Name)
+				if tag.Name == "int_1" && (int(tag.ByteOffset) != 4 || tag.DataType != "int") {
+					tag.ByteOffset = 4
+					tag.BitOffset = 0
+					tag.DataType = "int"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'int_1' para DB11.DBX4.0")
+				}
+
+				if tag.Name == "int_2" && (int(tag.ByteOffset) != 6 || tag.DataType != "int") {
+					tag.ByteOffset = 6
+					tag.BitOffset = 0
+					tag.DataType = "int"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'int_2' para DB11.DBX6.0")
+				}
+
+				if tag.Name == "int_3" && (int(tag.ByteOffset) != 8 || tag.DataType != "int") {
+					tag.ByteOffset = 8
+					tag.BitOffset = 0
+					tag.DataType = "int"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'int_3' para DB11.DBX8.0")
+				}
+
+				if tag.Name == "int_4" && (int(tag.ByteOffset) != 10 || tag.DataType != "int") {
+					tag.ByteOffset = 10
+					tag.BitOffset = 0
+					tag.DataType = "int"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'int_4' para DB11.DBX10.0")
+				}
+
+				if tag.Name == "int_5" && (int(tag.ByteOffset) != 12 || tag.DataType != "int") {
+					tag.ByteOffset = 12
+					tag.BitOffset = 0
+					tag.DataType = "int"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'int_5' para DB11.DBX12.0")
+				}
+
+				// Se precisar atualizar, chama o método UpdateTag
+				if needsUpdate {
+					if err := s.UpdateTag(tag); err != nil {
+						log.Printf("Erro ao atualizar tag %s (ID=%d): %v", tag.Name, tag.ID, err)
+					} else {
+						log.Printf("Tag %s atualizada com sucesso", tag.Name)
+					}
 				}
 			}
 		}
@@ -789,4 +845,117 @@ func (s *PLCService) VerifyTagAddresses() error {
 
 	log.Println("Verificação e correção de endereços concluída")
 	return nil
+}
+
+// Método adicional para verificar a saúde das conexões com PLCs
+func (s *PLCService) CheckPLCHealth() (map[int]string, error) {
+	health := make(map[int]string)
+
+	// Obter todos os PLCs ativos
+	plcs, err := s.GetActivePLCs()
+	if err != nil {
+		return nil, fmt.Errorf("erro ao buscar PLCs ativos: %v", err)
+	}
+
+	for _, plc := range plcs {
+		// Tentar recuperar a conexão através do gerenciador
+		conn, err := s.manager.GetConnectionByPLCID(plc.ID)
+		if err != nil {
+			health[plc.ID] = "offline: " + err.Error()
+			continue
+		}
+
+		// Verificar a conexão com ping
+		if err := conn.Ping(); err != nil {
+			health[plc.ID] = "falha: " + err.Error()
+		} else {
+			health[plc.ID] = "online"
+		}
+	}
+
+	return health, nil
+}
+
+// ResetPLCConnection força a reconexão com um PLC específico
+func (s *PLCService) ResetPLCConnection(plcID int) error {
+	// Verificar se o PLC existe
+	plc, err := s.GetByID(plcID)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("Solicitada reconexão com PLC %s (ID=%d)", plc.Name, plc.ID)
+
+	// Se o gerenciador estiver em execução
+	if s.isRunning && s.manager != nil {
+		// Fechar a conexão atual se existir
+		s.manager.connectionsMutex.Lock()
+		if conn, exists := s.manager.activeConnections[plcID]; exists {
+			conn.Close()
+			delete(s.manager.activeConnections, plcID)
+			log.Printf("Conexão existente com PLC %d fechada", plcID)
+		}
+		s.manager.connectionsMutex.Unlock()
+
+		// Atualizar o status do PLC para reiniciar o monitoramento
+		err = s.pgPLCRepo.UpdatePLCStatus(domain.PLCStatus{
+			PLCID:      plcID,
+			Status:     "reconnecting",
+			LastUpdate: time.Now(),
+		})
+		if err != nil {
+			log.Printf("Erro ao atualizar status do PLC %d: %v", plcID, err)
+		}
+
+		return nil
+	}
+
+	return fmt.Errorf("o serviço de monitoramento não está em execução")
+}
+
+// GetStatistics retorna estatísticas mais detalhadas do sistema
+func (s *PLCService) GetStatistics() map[string]interface{} {
+	stats := make(map[string]interface{})
+
+	// Estatísticas do gerenciador
+	if s.manager != nil {
+		managerStats := s.manager.GetStats()
+		stats["manager"] = managerStats
+	}
+
+	// Contar PLCs por status
+	plcs, err := s.GetAll()
+	if err == nil {
+		statusCount := make(map[string]int)
+		for _, plc := range plcs {
+			statusCount[plc.Status]++
+		}
+		stats["plc_status"] = statusCount
+		stats["total_plcs"] = len(plcs)
+	}
+
+	// Contar total de tags
+	totalTags := 0
+	activeTags := 0
+	tagsPerPLC := make(map[int]int)
+
+	for _, plc := range plcs {
+		tags, err := s.GetPLCTags(plc.ID)
+		if err == nil {
+			tagsPerPLC[plc.ID] = len(tags)
+			totalTags += len(tags)
+
+			for _, tag := range tags {
+				if tag.Active {
+					activeTags++
+				}
+			}
+		}
+	}
+
+	stats["total_tags"] = totalTags
+	stats["active_tags"] = activeTags
+	stats["tags_per_plc"] = tagsPerPLC
+
+	return stats
 }
