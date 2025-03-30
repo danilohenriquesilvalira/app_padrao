@@ -138,7 +138,7 @@ const PLCList = () => {
       >
         <TouchableOpacity 
           style={styles.cardContent}
-          onPress={() => navigation.navigate('PLCDetails' as never, { plcId: item.id } as never)}
+          onPress={() => (navigation as any).navigate('PLCDetails', { plcId: item.id })}
           activeOpacity={0.7}
         >
           <View style={styles.plcInfo}>
@@ -187,14 +187,14 @@ const PLCList = () => {
             <View style={styles.buttonGroup}>
               <TouchableOpacity
                 style={[styles.iconButton, { backgroundColor: `${theme.primary}15` }]}
-                onPress={() => navigation.navigate('PLCTags' as never, { plcId: item.id } as never)}
+                onPress={() => (navigation as any).navigate('PLCTags', { plcId: item.id })}
               >
                 <Feather name="tag" size={18} color={theme.primary} />
               </TouchableOpacity>
               
               <TouchableOpacity
                 style={[styles.iconButton, { backgroundColor: `${theme.secondary}15` }]}
-                onPress={() => navigation.navigate('EditPLC' as never, { plcId: item.id } as never)}
+                onPress={() => (navigation as any).navigate('EditPLC', { plcId: item.id })}
               >
                 <Feather name="edit-2" size={18} color={theme.secondary} />
               </TouchableOpacity>
@@ -228,7 +228,7 @@ const PLCList = () => {
       </Text>
       <Button
         title="Adicionar PLC"
-        onPress={() => navigation.navigate('CreatePLC' as never)}
+        onPress={() => (navigation as any).navigate('CreatePLC')}
         icon={<Feather name="plus" size={18} color="#fff" />}
         style={{ marginTop: 16 }}
       />
@@ -270,7 +270,7 @@ const PLCList = () => {
         
         <Button
           title="Novo PLC"
-          onPress={() => navigation.navigate('CreatePLC' as never)}
+          onPress={() => (navigation as any).navigate('CreatePLC')}
           icon={<Feather name="plus" size={18} color="#fff" />}
           style={styles.addButton}
           full

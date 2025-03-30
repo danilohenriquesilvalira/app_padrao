@@ -1,4 +1,4 @@
-// src/screens/Admin/PLC/EditPLC.tsx
+// src/screens/Admin/PLC/EditPLCTag.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -17,37 +17,40 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useTheme } from '../../../contexts/ThemeContext';
 import Input from '../../../components/Input';
 import Button from '../../../components/Button';
-import plcApi, { PLC } from '../../../services/plcApi';
+import plcApi, { PLC, PLCTag } from '../../../services/plcApi';
 
 interface RouteParams {
   plcId: number;
+  tagId: number;
 }
 
-const EditPLC = () => {
+const EditPLCTag = () => {
   const { theme, isDarkMode } = useTheme();
   const navigation = useNavigation();
   const route = useRoute();
-  const { plcId } = route.params as RouteParams;
+  const { plcId, tagId } = route.params as RouteParams;
   
   const [loading, setLoading] = useState(false);
   const [initialLoad, setInitialLoad] = useState(true);
+  const [tag, setTag] = useState<PLCTag | null>(null);
   const [formData, setFormData] = useState({
     name: '',
-    ip_address: '',
-    rack: '',
-    slot: '',
-    is_active: true,
+    description: '',
+    db_number: '',
+    byte_offset: '',
+    data_type: 'real',
+    scan_rate: '',
+    monitor_changes: true,
+    can_write: true,
+    active: true,
   });
   
-  // Keep original data to detect changes
-  const [originalData, setOriginalData] = useState<Partial<PLC> | null>(null);
-  
   // Validation state
-  const [errors, setErrors] = useState({
+  const [errors, setErrors] = useState<Record<string, string>>({
     name: '',
-    ip_address: '',
-    rack: '',
-    slot: '',
+    db_number: '',
+    byte_offset: '',
+    scan_rate: '',
   });
 
   // Animation refs
@@ -68,24 +71,30 @@ const EditPLC = () => {
       })
     ]).start();
     
-    loadPlc();
-  }, [plcId]);
+    loadTag();
+  }, [tagId]);
 
-  const loadPlc = async () => {
+  const loadTag = async () => {
     try {
       setInitialLoad(true);
-      const plcData = await plcApi.getPLC(plcId);
+      const tagData = await plcApi.getTagById(tagId);
+      setTag(tagData);
+      
+      // Set form data from tag
       setFormData({
-        name: plcData.name,
-        ip_address: plcData.ip_address,
-        rack: plcData.rack.toString(),
-        slot: plcData.slot.toString(),
-        is_active: plcData.is_active,
+        name: tagData.name || '',
+        description: tagData.description || '',
+        db_number: tagData.db_number.toString() || '',
+        byte_offset: tagData.byte_offset.toString() || '',
+        data_type: tagData.data_type || 'real',
+        scan_rate: tagData.scan_rate.toString() || '',
+        monitor_changes: tagData.monitor_changes,
+        can_write: tagData.can_write,
+        active: tagData.active,
       });
-      setOriginalData(plcData);
     } catch (error) {
-      console.error('Erro ao carregar detalhes do PLC:', error);
-      Alert.alert('Erro', 'Não foi possível carregar os detalhes do PLC');
+      console.error('Erro ao carregar detalhes da tag:', error);
+      Alert.alert('Erro', 'Não foi possível carregar os detalhes da tag');
       navigation.goBack();
     } finally {
       setInitialLoad(false);
@@ -98,7 +107,35 @@ const EditPLC = () => {
       setErrors({ ...errors, [field]: '' });
     }
 
-    setFormData({ ...formData, [field]: value });
+    // Type-safe update of the form data
+    setFormData(prev => {
+      // Create a new object with the updated field
+      const updated = { ...prev };
+      
+      // Explicitly set the field with proper typing
+      switch(field) {
+        case 'name':
+          updated.name = value;
+          break;
+        case 'description':
+          updated.description = value;
+          break;
+        case 'db_number':
+          updated.db_number = value;
+          break;
+        case 'byte_offset':
+          updated.byte_offset = value;
+          break;
+        case 'data_type':
+          updated.data_type = value;
+          break;
+        case 'scan_rate':
+          updated.scan_rate = value;
+          break;
+      }
+      
+      return updated;
+    });
   };
 
   const validateForm = () => {
@@ -111,24 +148,30 @@ const EditPLC = () => {
       isValid = false;
     }
 
-    // Validate IP address - basic validation
-    const ipPattern = /^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)$/;
-    if (!formData.ip_address.trim()) {
-      newErrors.ip_address = 'Endereço IP é obrigatório';
+    // Validate DB number
+    if (!formData.db_number.trim()) {
+      newErrors.db_number = 'Número do DB é obrigatório';
       isValid = false;
-    } else if (!ipPattern.test(formData.ip_address)) {
-      newErrors.ip_address = 'Endereço IP inválido';
-      isValid = false;
-    }
-
-    // Validate rack and slot are numbers
-    if (isNaN(parseInt(formData.rack))) {
-      newErrors.rack = 'Rack deve ser um número';
+    } else if (isNaN(parseInt(formData.db_number))) {
+      newErrors.db_number = 'Número do DB deve ser um número inteiro';
       isValid = false;
     }
 
-    if (isNaN(parseInt(formData.slot))) {
-      newErrors.slot = 'Slot deve ser um número';
+    // Validate byte offset
+    if (!formData.byte_offset.trim()) {
+      newErrors.byte_offset = 'Byte offset é obrigatório';
+      isValid = false;
+    } else if (isNaN(parseInt(formData.byte_offset))) {
+      newErrors.byte_offset = 'Byte offset deve ser um número inteiro';
+      isValid = false;
+    }
+
+    // Validate scan rate
+    if (!formData.scan_rate.trim()) {
+      newErrors.scan_rate = 'Taxa de scan é obrigatória';
+      isValid = false;
+    } else if (isNaN(parseInt(formData.scan_rate))) {
+      newErrors.scan_rate = 'Taxa de scan deve ser um número inteiro';
       isValid = false;
     }
 
@@ -137,48 +180,56 @@ const EditPLC = () => {
   };
 
   const hasChanges = () => {
-    if (!originalData) return false;
+    if (!tag) return false;
     
     return (
-      formData.name !== originalData.name ||
-      formData.ip_address !== originalData.ip_address ||
-      parseInt(formData.rack) !== originalData.rack ||
-      parseInt(formData.slot) !== originalData.slot ||
-      formData.is_active !== originalData.is_active
+      formData.name !== tag.name ||
+      formData.description !== tag.description ||
+      parseInt(formData.db_number) !== tag.db_number ||
+      parseInt(formData.byte_offset) !== tag.byte_offset ||
+      formData.data_type !== tag.data_type ||
+      parseInt(formData.scan_rate) !== tag.scan_rate ||
+      formData.monitor_changes !== tag.monitor_changes ||
+      formData.can_write !== tag.can_write ||
+      formData.active !== tag.active
     );
   };
 
   const handleSubmit = async () => {
-    if (!validateForm()) {
+    if (!validateForm() || !tag) {
       return;
     }
 
     try {
       setLoading(true);
       
-      // Convert rack and slot to numbers
-      const plcData = {
-        id: plcId,
+      // Create updated tag object
+      const tagData: PLCTag = {
+        ...tag,
         name: formData.name,
-        ip_address: formData.ip_address,
-        rack: parseInt(formData.rack),
-        slot: parseInt(formData.slot),
-        is_active: formData.is_active,
+        description: formData.description,
+        db_number: parseInt(formData.db_number),
+        byte_offset: parseInt(formData.byte_offset),
+        data_type: formData.data_type,
+        scan_rate: parseInt(formData.scan_rate),
+        monitor_changes: formData.monitor_changes,
+        can_write: formData.can_write,
+        active: formData.active,
       };
       
-      await plcApi.updatePLC(plcData);
+      await plcApi.updateTag(tagData);
       
       Alert.alert(
         'Sucesso',
-        'PLC atualizado com sucesso!',
+        'Tag atualizada com sucesso!',
         [{ 
           text: 'OK', 
           onPress: () => navigation.goBack() 
         }]
       );
     } catch (error) {
-      console.error('Erro ao atualizar PLC:', error);
-      Alert.alert('Erro', 'Não foi possível atualizar o PLC. Tente novamente.');
+      console.error('Erro ao atualizar tag:', error);
+      Alert.alert('Erro', 'Não foi possível atualizar a tag. Tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -204,7 +255,7 @@ const EditPLC = () => {
       <View style={[styles.loadingContainer, { backgroundColor: theme.background }]}>
         <ActivityIndicator size="large" color={theme.primary} />
         <Text style={[styles.loadingText, { color: theme.text }]}>
-          Carregando dados do PLC...
+          Carregando dados da tag...
         </Text>
       </View>
     );
@@ -230,13 +281,13 @@ const EditPLC = () => {
           ]}
         >
           <View style={styles.headerIconContainer}>
-            <Feather name="cpu" size={32} color={theme.primary} />
+            <Feather name="tag" size={32} color={theme.primary} />
           </View>
           <Text style={[styles.headerTitle, { color: theme.text }]}>
-            Editar PLC
+            Editar Tag
           </Text>
           <Text style={[styles.headerSubtitle, { color: theme.textSecondary }]}>
-            Atualize as configurações do controlador lógico programável
+            Atualize as configurações da tag de monitoramento
           </Text>
         </Animated.View>
 
@@ -260,9 +311,9 @@ const EditPLC = () => {
             </View>
 
             <Input
-              label="Nome do PLC"
+              label="Nome da Tag"
               icon="tag"
-              placeholder="Ex: PLC Principal"
+              placeholder="Ex: Motor_Velocidade"
               value={formData.name}
               onChangeText={(text) => handleInputChange('name', text)}
               error={errors.name}
@@ -270,14 +321,95 @@ const EditPLC = () => {
             />
 
             <Input
-              label="Endereço IP"
-              icon="globe"
-              placeholder="Ex: 192.168.1.100"
-              value={formData.ip_address}
-              onChangeText={(text) => handleInputChange('ip_address', text)}
-              error={errors.ip_address}
-              required
+              label="Descrição"
+              icon="file-text"
+              placeholder="Ex: Velocidade do motor principal"
+              value={formData.description}
+              onChangeText={(text) => handleInputChange('description', text)}
+              multiline
+            />
+          </View>
+
+          <View style={styles.formSection}>
+            <View style={styles.sectionHeader}>
+              <Feather name="database" size={20} color={theme.primary} />
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>
+                Endereçamento
+              </Text>
+            </View>
+
+            <View style={styles.rowInputs}>
+              <View style={styles.halfInput}>
+                <Input
+                  label="Número do DB"
+                  icon="hash"
+                  placeholder="Ex: 1"
+                  value={formData.db_number}
+                  onChangeText={(text) => handleInputChange('db_number', text)}
+                  error={errors.db_number}
+                  keyboardType="numeric"
+                  required
+                />
+              </View>
+
+              <View style={styles.halfInput}>
+                <Input
+                  label="Byte Offset"
+                  icon="move"
+                  placeholder="Ex: 0"
+                  value={formData.byte_offset}
+                  onChangeText={(text) => handleInputChange('byte_offset', text)}
+                  error={errors.byte_offset}
+                  keyboardType="numeric"
+                  required
+                />
+              </View>
+            </View>
+
+            <View style={styles.formRow}>
+              <Text style={[styles.pickerLabel, { color: theme.text }]}>
+                Tipo de Dados:
+              </Text>
+              <View style={[
+                styles.dataTypePicker, 
+                { 
+                  backgroundColor: isDarkMode ? theme.surfaceVariant : '#f5f5f5',
+                  borderColor: isDarkMode ? theme.border : '#e0e0e0',
+                }
+              ]}>
+                {['real', 'int', 'word', 'bool', 'string'].map(type => (
+                  <TouchableOpacity
+                    key={type}
+                    style={[
+                      styles.dataTypeOption,
+                      formData.data_type === type && styles.dataTypeSelected,
+                      formData.data_type === type && { backgroundColor: theme.primary }
+                    ]}
+                    onPress={() => handleInputChange('data_type', type)}
+                  >
+                    <Text 
+                      style={[
+                        styles.dataTypeText,
+                        formData.data_type === type && styles.dataTypeTextSelected
+                      ]}
+                    >
+                      {type.toUpperCase()}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+            
+            <Input
+              label="Taxa de Scan (ms)"
+              icon="clock"
+              placeholder="Ex: 1000"
+              value={formData.scan_rate}
+              onChangeText={(text) => handleInputChange('scan_rate', text)}
+              error={errors.scan_rate}
               keyboardType="numeric"
+              helperText="Intervalo em milissegundos para leitura da tag"
+              required
             />
           </View>
 
@@ -285,53 +417,67 @@ const EditPLC = () => {
             <View style={styles.sectionHeader}>
               <Feather name="settings" size={20} color={theme.primary} />
               <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                Configuração de Conexão
+                Configurações Adicionais
               </Text>
-            </View>
-
-            <View style={styles.rowInputs}>
-              <View style={styles.halfInput}>
-                <Input
-                  label="Rack"
-                  icon="hard-drive"
-                  placeholder="Ex: 0"
-                  value={formData.rack}
-                  onChangeText={(text) => handleInputChange('rack', text)}
-                  error={errors.rack}
-                  keyboardType="numeric"
-                />
-              </View>
-
-              <View style={styles.halfInput}>
-                <Input
-                  label="Slot"
-                  icon="server"
-                  placeholder="Ex: 1"
-                  value={formData.slot}
-                  onChangeText={(text) => handleInputChange('slot', text)}
-                  error={errors.slot}
-                  keyboardType="numeric"
-                />
-              </View>
             </View>
 
             <View style={styles.switchContainer}>
               <View>
                 <Text style={[styles.switchLabel, { color: theme.text }]}>
-                  Ativo
+                  Monitorar Mudanças
                 </Text>
                 <Text style={[styles.switchDescription, { color: theme.textSecondary }]}>
-                  {formData.is_active 
-                    ? "O PLC será monitorado automaticamente" 
-                    : "O PLC não será monitorado automaticamente"}
+                  {formData.monitor_changes 
+                    ? "Registrar alterações de valor" 
+                    : "Não registrar alterações de valor"}
                 </Text>
               </View>
 
               <Switch
-                value={formData.is_active}
-                onValueChange={(value) => setFormData({ ...formData, is_active: value })}
+                value={formData.monitor_changes}
+                onValueChange={(value) => setFormData({...formData, monitor_changes: value})}
                 trackColor={{ false: isDarkMode ? '#555' : '#d1d1d1', true: `${theme.primary}80` }}
-                thumbColor={formData.is_active ? theme.primary : isDarkMode ? '#888' : '#f4f3f4'}
+                thumbColor={formData.monitor_changes ? theme.primary : isDarkMode ? '#888' : '#f4f3f4'}
+              />
+            </View>
+
+            <View style={styles.switchContainer}>
+              <View>
+                <Text style={[styles.switchLabel, { color: theme.text }]}>
+                  Permitir Escrita
+                </Text>
+                <Text style={[styles.switchDescription, { color: theme.textSecondary }]}>
+                  {formData.can_write 
+                    ? "Permite escrever valores nesta tag" 
+                    : "Esta tag é somente leitura"}
+                </Text>
+              </View>
+
+              <Switch
+                value={formData.can_write}
+                onValueChange={(value) => setFormData({...formData, can_write: value})}
+                trackColor={{ false: isDarkMode ? '#555' : '#d1d1d1', true: `${theme.primary}80` }}
+                thumbColor={formData.can_write ? theme.primary : isDarkMode ? '#888' : '#f4f3f4'}
+              />
+            </View>
+
+            <View style={styles.switchContainer}>
+              <View>
+                <Text style={[styles.switchLabel, { color: theme.text }]}>
+                  Tag Ativa
+                </Text>
+                <Text style={[styles.switchDescription, { color: theme.textSecondary }]}>
+                  {formData.active 
+                    ? "Esta tag está sendo monitorada" 
+                    : "Esta tag não está sendo monitorada"}
+                </Text>
+              </View>
+
+              <Switch
+                value={formData.active}
+                onValueChange={(value) => setFormData({...formData, active: value})}
+                trackColor={{ false: isDarkMode ? '#555' : '#d1d1d1', true: `${theme.primary}80` }}
+                thumbColor={formData.active ? theme.primary : isDarkMode ? '#888' : '#f4f3f4'}
               />
             </View>
           </View>
@@ -354,21 +500,6 @@ const EditPLC = () => {
           </View>
         </Animated.View>
 
-        <Animated.View
-          style={{
-            opacity: fadeAnim,
-            transform: [{ translateY: slideAnim }]
-          }}
-        >
-          <Button
-            title="Gerenciar Tags"
-            onPress={() => navigation.navigate('PLCTags' as never, { plcId } as never)}
-            icon={<Feather name="tag" size={18} color="#fff" />}
-            full
-            style={styles.manageTags}
-          />
-        </Animated.View>
-
         {/* Delete button at bottom */}
         <Animated.View
           style={{
@@ -377,12 +508,12 @@ const EditPLC = () => {
           }}
         >
           <Button
-            title="Excluir PLC"
+            title="Excluir Tag"
             variant="error"
             onPress={() => {
               Alert.alert(
                 'Confirmar exclusão',
-                'Você tem certeza que deseja excluir este PLC? Esta ação não pode ser desfeita.',
+                'Você tem certeza que deseja excluir esta tag? Esta ação não pode ser desfeita.',
                 [
                   { text: 'Cancelar', style: 'cancel' },
                   { 
@@ -391,12 +522,12 @@ const EditPLC = () => {
                     onPress: async () => {
                       try {
                         setLoading(true);
-                        await plcApi.deletePLC(plcId);
-                        Alert.alert('Sucesso', 'PLC excluído com sucesso!');
-                        navigation.navigate('PLCList' as never);
+                        await plcApi.deleteTag(tagId);
+                        Alert.alert('Sucesso', 'Tag excluída com sucesso!');
+                        (navigation as any).navigate('PLCTags', { plcId });
                       } catch (error) {
-                        console.error('Erro ao excluir PLC:', error);
-                        Alert.alert('Erro', 'Não foi possível excluir o PLC.');
+                        console.error('Erro ao excluir tag:', error);
+                        Alert.alert('Erro', 'Não foi possível excluir a tag.');
                       } finally {
                         setLoading(false);
                       }
@@ -487,6 +618,39 @@ const styles = StyleSheet.create({
   halfInput: {
     width: '48%',
   },
+  formRow: {
+    marginBottom: 16,
+  },
+  pickerLabel: {
+    fontSize: 15,
+    fontWeight: '500',
+    marginBottom: 8,
+  },
+  dataTypePicker: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 8,
+  },
+  dataTypeOption: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  dataTypeSelected: {
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  dataTypeText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  dataTypeTextSelected: {
+    color: '#fff',
+  },
   switchContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -496,7 +660,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#e0e0e0',
-    marginTop: 16,
+    marginBottom: 16,
   },
   switchLabel: {
     fontSize: 16,
@@ -512,13 +676,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 8,
   },
-  manageTags: {
-    marginTop: 8,
-    marginBottom: 24,
-  },
   deleteButton: {
     marginTop: 8,
   },
 });
 
-export default EditPLC;
+export default EditPLCTag;
