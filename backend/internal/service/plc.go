@@ -2,51 +2,147 @@ package service
 
 import (
 	"app_padrao/internal/domain"
+	"app_padrao/internal/repository"
 	"fmt"
 	"log"
-	"sync"
 	"time"
 )
 
+// PLCService implementa a interface domain.PLCService
 type PLCService struct {
-	plcRepo domain.PLCRepository
-	tagRepo domain.PLCTagRepository
-	cache   domain.PLCCache
+	// Repositórios PostgreSQL (persistência principal)
+	pgPLCRepo domain.PLCRepository
+	pgTagRepo domain.PLCTagRepository
 
-	manager   *plcManager
+	// Repositórios Redis (cache de operação)
+	redisPLCRepo domain.PLCRepository
+	redisTagRepo domain.PLCTagRepository
+
+	// Cache Redis para valores de tags
+	cache domain.PLCCache
+
+	// Gerenciador de PLCs
+	manager *PLCManager
+
+	// Serviço de sincronização
+	syncService *PLCSyncService
+
+	// Estado
 	isRunning bool
-	mu        sync.Mutex
 }
 
+// NewPLCService cria um novo serviço de PLC
 func NewPLCService(
-	plcRepo domain.PLCRepository,
-	tagRepo domain.PLCTagRepository,
+	pgPLCRepo domain.PLCRepository,
+	pgTagRepo domain.PLCTagRepository,
 	cache domain.PLCCache,
 ) *PLCService {
+	// Obter o cliente Redis do cache
+	redisClient := cache.GetRedisClient()
+
+	// Criar repositórios Redis
+	redisPLCRepo := repository.NewPLCRedisRepository(redisClient)
+	redisTagRepo := repository.NewPLCTagRedisRepository(redisClient)
+
+	// Inicializar serviço
 	s := &PLCService{
-		plcRepo:   plcRepo,
-		tagRepo:   tagRepo,
-		cache:     cache,
-		isRunning: false,
+		pgPLCRepo:    pgPLCRepo,
+		pgTagRepo:    pgTagRepo,
+		redisPLCRepo: redisPLCRepo,
+		redisTagRepo: redisTagRepo,
+		cache:        cache,
+		isRunning:    false,
 	}
 
-	s.manager = newPLCManager(s.plcRepo, s.tagRepo, s.cache)
+	// Criar serviço de sincronização
+	s.syncService = NewPLCSyncService(
+		pgPLCRepo,
+		pgTagRepo,
+		redisPLCRepo,
+		redisTagRepo,
+		true, // Fazer importação inicial
+	)
+
+	// Criar gerenciador de PLCs
+	s.manager = NewPLCManager(redisPLCRepo, redisTagRepo, cache)
 
 	return s
 }
 
+// GetByID busca um PLC pelo ID
 func (s *PLCService) GetByID(id int) (domain.PLC, error) {
-	return s.plcRepo.GetByID(id)
+	// Primeiro tentar no Redis para resposta mais rápida
+	plc, err := s.redisPLCRepo.GetByID(id)
+	if err == nil {
+		return plc, nil
+	}
+
+	// Se não encontrar no Redis, buscar no PostgreSQL
+	plc, err = s.pgPLCRepo.GetByID(id)
+	if err != nil {
+		return domain.PLC{}, err
+	}
+
+	// Armazenar no Redis para acessos futuros
+	_, err = s.redisPLCRepo.Create(plc)
+	if err != nil {
+		log.Printf("Aviso: erro ao armazenar PLC %d no Redis: %v", id, err)
+	}
+
+	return plc, nil
 }
 
+// GetAll retorna todos os PLCs
 func (s *PLCService) GetAll() ([]domain.PLC, error) {
-	return s.plcRepo.GetAll()
+	// Tentar Redis primeiro
+	plcs, err := s.redisPLCRepo.GetAll()
+	if err == nil && len(plcs) > 0 {
+		return plcs, nil
+	}
+
+	// Se não houver dados no Redis, buscar do PostgreSQL
+	plcs, err = s.pgPLCRepo.GetAll()
+	if err != nil {
+		return nil, err
+	}
+
+	// Armazenar no Redis para futuras consultas
+	for _, plc := range plcs {
+		_, err := s.redisPLCRepo.Create(plc)
+		if err != nil {
+			log.Printf("Aviso: erro ao armazenar PLC %d no Redis: %v", plc.ID, err)
+		}
+	}
+
+	return plcs, nil
 }
 
+// GetActivePLCs retorna PLCs ativos
 func (s *PLCService) GetActivePLCs() ([]domain.PLC, error) {
-	return s.plcRepo.GetActivePLCs()
+	// Tentar Redis primeiro
+	plcs, err := s.redisPLCRepo.GetActivePLCs()
+	if err == nil && len(plcs) > 0 {
+		return plcs, nil
+	}
+
+	// Se não houver dados no Redis, buscar do PostgreSQL
+	plcs, err = s.pgPLCRepo.GetActivePLCs()
+	if err != nil {
+		return nil, err
+	}
+
+	// Armazenar no Redis para futuras consultas
+	for _, plc := range plcs {
+		_, err := s.redisPLCRepo.Create(plc)
+		if err != nil {
+			log.Printf("Aviso: erro ao armazenar PLC %d no Redis: %v", plc.ID, err)
+		}
+	}
+
+	return plcs, nil
 }
 
+// Create cria um novo PLC
 func (s *PLCService) Create(plc domain.PLC) (int, error) {
 	// Validações
 	if plc.Name == "" {
@@ -57,11 +153,29 @@ func (s *PLCService) Create(plc domain.PLC) (int, error) {
 		return 0, fmt.Errorf("endereço IP do PLC é obrigatório")
 	}
 
+	// Definir data de criação
 	plc.CreatedAt = time.Now()
 
-	return s.plcRepo.Create(plc)
+	// Criar no banco de dados principal (persistência)
+	id, err := s.pgPLCRepo.Create(plc)
+	if err != nil {
+		return 0, err
+	}
+
+	// Definir ID retornado
+	plc.ID = id
+
+	// Criar no Redis também
+	_, err = s.redisPLCRepo.Create(plc)
+	if err != nil {
+		log.Printf("Aviso: erro ao armazenar novo PLC no Redis: %v", err)
+		// Continuar mesmo com erro no Redis
+	}
+
+	return id, nil
 }
 
+// Update atualiza um PLC
 func (s *PLCService) Update(plc domain.PLC) error {
 	// Validações
 	if plc.Name == "" {
@@ -72,37 +186,121 @@ func (s *PLCService) Update(plc domain.PLC) error {
 		return fmt.Errorf("endereço IP do PLC é obrigatório")
 	}
 
-	return s.plcRepo.Update(plc)
+	// Atualizar data
+	plc.UpdatedAt = time.Now()
+
+	// Atualizar no banco de dados principal
+	err := s.pgPLCRepo.Update(plc)
+	if err != nil {
+		return err
+	}
+
+	// Atualizar no Redis também
+	err = s.redisPLCRepo.Update(plc)
+	if err != nil {
+		log.Printf("Aviso: erro ao atualizar PLC no Redis: %v", err)
+		// Tentar criar caso não exista
+		_, err = s.redisPLCRepo.Create(plc)
+		if err != nil {
+			log.Printf("Aviso: erro ao criar PLC no Redis após falha na atualização: %v", err)
+		}
+	}
+
+	return nil
 }
 
+// Delete remove um PLC
 func (s *PLCService) Delete(id int) error {
-	return s.plcRepo.Delete(id)
+	// Excluir tags associadas primeiro
+	tags, err := s.GetPLCTags(id)
+	if err == nil {
+		for _, tag := range tags {
+			err := s.DeleteTag(tag.ID)
+			if err != nil {
+				log.Printf("Aviso: erro ao excluir tag %d do PLC %d: %v", tag.ID, id, err)
+			}
+		}
+	}
+
+	// Excluir do banco de dados principal
+	err = s.pgPLCRepo.Delete(id)
+	if err != nil {
+		return err
+	}
+
+	// Excluir do Redis também
+	err = s.redisPLCRepo.Delete(id)
+	if err != nil {
+		log.Printf("Aviso: erro ao excluir PLC do Redis: %v", err)
+	}
+
+	return nil
 }
 
+// GetPLCTags busca as tags de um PLC
 func (s *PLCService) GetPLCTags(plcID int) ([]domain.PLCTag, error) {
-	tags, err := s.tagRepo.GetPLCTags(plcID)
+	// Tentar buscar do Redis primeiro
+	tags, err := s.redisTagRepo.GetPLCTags(plcID)
+	if err == nil && len(tags) > 0 {
+		// Carregar valores atuais das tags
+		for i := range tags {
+			tagValue, err := s.cache.GetTagValue(plcID, tags[i].ID)
+			if err == nil && tagValue != nil {
+				tags[i].CurrentValue = tagValue.Value
+			}
+		}
+		return tags, nil
+	}
+
+	// Se não encontrar no Redis, buscar do PostgreSQL
+	tags, err = s.pgTagRepo.GetPLCTags(plcID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Carregar valores atuais das tags do cache
-	for i := range tags {
-		tagValue, err := s.cache.GetTagValue(plcID, tags[i].ID)
+	// Armazenar no Redis para futuras consultas
+	for _, tag := range tags {
+		_, err := s.redisTagRepo.Create(tag)
+		if err != nil {
+			log.Printf("Aviso: erro ao armazenar tag %d no Redis: %v", tag.ID, err)
+		}
+
+		// Carregar valor atual, se disponível
+		tagValue, err := s.cache.GetTagValue(plcID, tag.ID)
 		if err == nil && tagValue != nil {
-			tags[i].CurrentValue = tagValue.Value
+			tag.CurrentValue = tagValue.Value
 		}
 	}
 
 	return tags, nil
 }
 
+// GetTagByID busca uma tag pelo ID
 func (s *PLCService) GetTagByID(id int) (domain.PLCTag, error) {
-	tag, err := s.tagRepo.GetByID(id)
+	// Tentar buscar do Redis primeiro
+	tag, err := s.redisTagRepo.GetByID(id)
+	if err == nil {
+		// Carregar valor atual
+		tagValue, err := s.cache.GetTagValue(tag.PLCID, tag.ID)
+		if err == nil && tagValue != nil {
+			tag.CurrentValue = tagValue.Value
+		}
+		return tag, nil
+	}
+
+	// Se não encontrar no Redis, buscar do PostgreSQL
+	tag, err = s.pgTagRepo.GetByID(id)
 	if err != nil {
 		return domain.PLCTag{}, err
 	}
 
-	// Carregar valor atual do cache
+	// Armazenar no Redis para futuras consultas
+	_, err = s.redisTagRepo.Create(tag)
+	if err != nil {
+		log.Printf("Aviso: erro ao armazenar tag %d no Redis: %v", id, err)
+	}
+
+	// Carregar valor atual
 	tagValue, err := s.cache.GetTagValue(tag.PLCID, tag.ID)
 	if err == nil && tagValue != nil {
 		tag.CurrentValue = tagValue.Value
@@ -111,23 +309,45 @@ func (s *PLCService) GetTagByID(id int) (domain.PLCTag, error) {
 	return tag, nil
 }
 
+// GetTagByName busca tags pelo nome
 func (s *PLCService) GetTagByName(name string) ([]domain.PLCTag, error) {
-	tags, err := s.tagRepo.GetByName(name)
+	// Tentar buscar do Redis primeiro
+	tags, err := s.redisTagRepo.GetByName(name)
+	if err == nil && len(tags) > 0 {
+		// Carregar valores atuais
+		for i := range tags {
+			tagValue, err := s.cache.GetTagValue(tags[i].PLCID, tags[i].ID)
+			if err == nil && tagValue != nil {
+				tags[i].CurrentValue = tagValue.Value
+			}
+		}
+		return tags, nil
+	}
+
+	// Se não encontrar no Redis, buscar do PostgreSQL
+	tags, err = s.pgTagRepo.GetByName(name)
 	if err != nil {
 		return nil, err
 	}
 
-	// Carregar valores atuais das tags do cache
-	for i := range tags {
-		tagValue, err := s.cache.GetTagValue(tags[i].PLCID, tags[i].ID)
+	// Armazenar no Redis para futuras consultas
+	for _, tag := range tags {
+		_, err := s.redisTagRepo.Create(tag)
+		if err != nil {
+			log.Printf("Aviso: erro ao armazenar tag %d no Redis: %v", tag.ID, err)
+		}
+
+		// Carregar valor atual
+		tagValue, err := s.cache.GetTagValue(tag.PLCID, tag.ID)
 		if err == nil && tagValue != nil {
-			tags[i].CurrentValue = tagValue.Value
+			tag.CurrentValue = tagValue.Value
 		}
 	}
 
 	return tags, nil
 }
 
+// CreateTag cria uma nova tag
 func (s *PLCService) CreateTag(tag domain.PLCTag) (int, error) {
 	// Validações
 	if tag.Name == "" {
@@ -157,19 +377,36 @@ func (s *PLCService) CreateTag(tag domain.PLCTag) (int, error) {
 	}
 
 	// Verificar se o PLC existe
-	_, err := s.plcRepo.GetByID(tag.PLCID)
+	_, err := s.GetByID(tag.PLCID)
 	if err != nil {
 		return 0, err
 	}
 
+	// Definir valores padrão
 	tag.CreatedAt = time.Now()
 	if tag.ScanRate <= 0 {
 		tag.ScanRate = 1000 // Padrão: 1 segundo
 	}
 
-	return s.tagRepo.Create(tag)
+	// Criar no banco de dados principal
+	id, err := s.pgTagRepo.Create(tag)
+	if err != nil {
+		return 0, err
+	}
+
+	// Definir ID
+	tag.ID = id
+
+	// Criar no Redis também
+	_, err = s.redisTagRepo.Create(tag)
+	if err != nil {
+		log.Printf("Aviso: erro ao armazenar nova tag no Redis: %v", err)
+	}
+
+	return id, nil
 }
 
+// UpdateTag atualiza uma tag
 func (s *PLCService) UpdateTag(tag domain.PLCTag) error {
 	// Validações
 	if tag.Name == "" {
@@ -199,60 +436,412 @@ func (s *PLCService) UpdateTag(tag domain.PLCTag) error {
 	}
 
 	// Verificar se o PLC existe
-	_, err := s.plcRepo.GetByID(tag.PLCID)
+	_, err := s.GetByID(tag.PLCID)
 	if err != nil {
 		return err
 	}
 
+	// Atualizar data
+	tag.UpdatedAt = time.Now()
+
+	// Definir valores padrão
 	if tag.ScanRate <= 0 {
 		tag.ScanRate = 1000 // Padrão: 1 segundo
 	}
 
-	return s.tagRepo.Update(tag)
-}
-
-func (s *PLCService) DeleteTag(id int) error {
-	return s.tagRepo.Delete(id)
-}
-
-func (s *PLCService) StartMonitoring() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.isRunning {
-		return fmt.Errorf("monitoramento já está em execução")
-	}
-
-	err := s.manager.Start()
+	// Atualizar no banco de dados principal
+	err = s.pgTagRepo.Update(tag)
 	if err != nil {
 		return err
 	}
 
-	s.isRunning = true
-	log.Println("Serviço de monitoramento de PLCs iniciado")
+	// Atualizar no Redis também
+	err = s.redisTagRepo.Update(tag)
+	if err != nil {
+		log.Printf("Aviso: erro ao atualizar tag no Redis: %v", err)
+		// Tentar criar caso não exista
+		_, err = s.redisTagRepo.Create(tag)
+		if err != nil {
+			log.Printf("Aviso: erro ao criar tag no Redis após falha na atualização: %v", err)
+		}
+	}
 
 	return nil
 }
 
-func (s *PLCService) StopMonitoring() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// DeleteTag remove uma tag
+func (s *PLCService) DeleteTag(id int) error {
+	// Buscar tag antes de excluir apenas para verificar se existe
+	_, err := s.GetTagByID(id)
+	if err != nil {
+		return err
+	}
 
+	// Excluir do banco de dados principal
+	err = s.pgTagRepo.Delete(id)
+	if err != nil {
+		return err
+	}
+
+	// Excluir do Redis também
+	err = s.redisTagRepo.Delete(id)
+	if err != nil {
+		log.Printf("Aviso: erro ao excluir tag do Redis: %v", err)
+	}
+
+	return nil
+}
+
+// StartMonitoring inicia o monitoramento de PLCs
+func (s *PLCService) StartMonitoring() error {
+	if s.isRunning {
+		return fmt.Errorf("monitoramento já está em execução")
+	}
+
+	// Iniciar serviço de sincronização
+	err := s.syncService.Start()
+	if err != nil {
+		return fmt.Errorf("erro ao iniciar sincronização: %v", err)
+	}
+
+	// Iniciar gerenciador de PLCs
+	err = s.manager.Start()
+	if err != nil {
+		s.syncService.Stop()
+		return fmt.Errorf("erro ao iniciar gerenciador de PLCs: %v", err)
+	}
+
+	s.isRunning = true
+	log.Println("Serviço de monitoramento de PLCs iniciado")
+	return nil
+}
+
+// StopMonitoring para o monitoramento de PLCs
+func (s *PLCService) StopMonitoring() error {
 	if !s.isRunning {
 		return nil
 	}
 
+	// Parar gerenciador
 	s.manager.Stop()
+
+	// Parar sincronização
+	s.syncService.Stop()
+
 	s.isRunning = false
 	log.Println("Serviço de monitoramento de PLCs parado")
-
 	return nil
 }
 
+// WriteTagValue escreve um valor em uma tag pelo nome
 func (s *PLCService) WriteTagValue(tagName string, value interface{}) error {
 	return s.manager.WriteTagByName(tagName, value)
 }
 
+// GetTagValue busca o valor atual de uma tag
 func (s *PLCService) GetTagValue(plcID int, tagID int) (*domain.TagValue, error) {
 	return s.cache.GetTagValue(plcID, tagID)
+}
+
+// GetPLCStats retorna estatísticas do gerenciador de PLCs
+func (s *PLCService) GetPLCStats() domain.PLCManagerStats {
+	// Converter o tipo PLCManagerStats para domain.PLCManagerStats
+	stats := s.manager.GetStats()
+
+	// Criar uma nova instância do tipo domain.PLCManagerStats
+	domainStats := domain.PLCManagerStats{
+		ActivePLCs:      stats.ActivePLCs,
+		TotalTags:       stats.TotalTags,
+		TagsRead:        stats.TagsRead,
+		TagsWritten:     stats.TagsWritten,
+		ReadErrors:      stats.ReadErrors,
+		WriteErrors:     stats.WriteErrors,
+		LastUpdated:     stats.LastUpdated,
+		ConnectionStats: make(map[int]domain.PLCConnectionStats, len(stats.ConnectionStats)),
+	}
+
+	// Converter cada ConnectionStat para domain.PLCConnectionStats
+	for id, connStat := range stats.ConnectionStats {
+		domainStats.ConnectionStats[id] = domain.PLCConnectionStats{
+			PLCID:         connStat.PLCID,
+			Name:          connStat.Name,
+			Status:        connStat.Status,
+			TagCount:      connStat.TagCount,
+			LastConnected: connStat.LastConnected,
+			ReadErrors:    connStat.ReadErrors,
+			WriteErrors:   connStat.WriteErrors,
+		}
+	}
+
+	return domainStats
+}
+
+// StartDebugMonitor inicia uma rotina que imprime periodicamente os valores de todas as tags
+func (s *PLCService) StartDebugMonitor() {
+	// Verificar se o monitoramento está rodando
+	if !s.isRunning {
+		log.Println("DEPURAÇÃO: Não é possível iniciar o monitor de depuração porque o serviço PLC não está em execução")
+		return
+	}
+
+	log.Println("DEPURAÇÃO: Iniciando monitor de depuração para valores de tags")
+
+	// Iniciar uma goroutine para imprimir valores periodicamente
+	go func() {
+		ticker := time.NewTicker(5 * time.Second) // Ajuste o intervalo conforme necessário
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				// Obter todos os PLCs ativos
+				plcs, err := s.GetActivePLCs()
+				if err != nil {
+					log.Printf("DEPURAÇÃO: Erro ao buscar PLCs ativos: %v", err)
+					continue
+				}
+
+				if len(plcs) == 0 {
+					log.Println("DEPURAÇÃO: Nenhum PLC ativo encontrado")
+					continue
+				}
+
+				// Para cada PLC, buscar suas tags
+				for _, plc := range plcs {
+					tags, err := s.GetPLCTags(plc.ID)
+					if err != nil {
+						log.Printf("DEPURAÇÃO: Erro ao buscar tags do PLC %s (ID=%d): %v",
+							plc.Name, plc.ID, err)
+						continue
+					}
+
+					if len(tags) == 0 {
+						log.Printf("DEPURAÇÃO: PLC %s (ID=%d) não tem tags", plc.Name, plc.ID)
+						continue
+					}
+
+					// Imprimir cabeçalho
+					log.Printf("=== VALORES ATUAIS DO PLC %s (STATUS: %s) ===", plc.Name, plc.Status)
+
+					// Imprimir cada tag com seu valor
+					for _, tag := range tags {
+						if !tag.Active {
+							continue
+						}
+
+						// Buscar o valor mais recente do cache
+						tagValue, err := s.cache.GetTagValue(plc.ID, tag.ID)
+
+						var valorStr string
+						if err != nil || tagValue == nil {
+							valorStr = "<sem valor>"
+						} else {
+							// Formatação mais legível do valor
+							switch tag.DataType {
+							case "real":
+								if v, ok := tagValue.Value.(float32); ok {
+									valorStr = fmt.Sprintf("%.3f", v)
+								} else {
+									valorStr = fmt.Sprintf("%v", tagValue.Value)
+								}
+							case "bool":
+								if v, ok := tagValue.Value.(bool); ok {
+									if v {
+										valorStr = "TRUE"
+									} else {
+										valorStr = "FALSE"
+									}
+								} else {
+									valorStr = fmt.Sprintf("%v", tagValue.Value)
+								}
+							default:
+								valorStr = fmt.Sprintf("%v", tagValue.Value)
+							}
+						}
+
+						log.Printf("  Tag: %-20s | Tipo: %-6s | DB%d.DBX%d.%d | Valor: %s",
+							tag.Name,
+							tag.DataType,
+							tag.DBNumber,
+							tag.ByteOffset,
+							tag.BitOffset,
+							valorStr)
+					}
+
+					log.Println("=============================================")
+				}
+			}
+		}
+	}()
+}
+
+// VerifyTagAddresses verifica se os endereços das tags correspondem aos do PLC real
+func (s *PLCService) VerifyTagAddresses() error {
+	log.Println("Verificando endereços das tags...")
+
+	// Obter todos os PLCs
+	plcs, err := s.GetAll()
+	if err != nil {
+		return fmt.Errorf("erro ao buscar PLCs: %v", err)
+	}
+
+	for _, plc := range plcs {
+		log.Printf("Verificando tags do PLC %s (ID=%d)", plc.Name, plc.ID)
+
+		// Obter tags do PLC
+		tags, err := s.GetPLCTags(plc.ID)
+		if err != nil {
+			log.Printf("Erro ao buscar tags do PLC %d: %v", plc.ID, err)
+			continue
+		}
+
+		// Verificar cada tag
+		for _, tag := range tags {
+			// Exemplos para a DB11 conforme mostrado na captura de tela
+			if tag.DBNumber == 11 {
+				// Verificar nomes conhecidos e corrigir se necessário
+				needsUpdate := false
+
+				if tag.Name == "bit" && (tag.ByteOffset != 0 || tag.BitOffset != 0) {
+					tag.ByteOffset = 0
+					tag.BitOffset = 0
+					tag.DataType = "bool"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'bit' para DB11.DBX0.0")
+				}
+
+				if tag.Name == "bit_1" && (tag.ByteOffset != 0 || tag.BitOffset != 1) {
+					tag.ByteOffset = 0
+					tag.BitOffset = 1
+					tag.DataType = "bool"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'bit_1' para DB11.DBX0.1")
+				}
+
+				if tag.Name == "bit_2" && (tag.ByteOffset != 0 || tag.BitOffset != 2) {
+					tag.ByteOffset = 0
+					tag.BitOffset = 2
+					tag.DataType = "bool"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'bit_2' para DB11.DBX0.2")
+				}
+
+				if tag.Name == "bit_3" && (tag.ByteOffset != 0 || tag.BitOffset != 3) {
+					tag.ByteOffset = 0
+					tag.BitOffset = 3
+					tag.DataType = "bool"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'bit_3' para DB11.DBX0.3")
+				}
+
+				if tag.Name == "bit_4" && (tag.ByteOffset != 0 || tag.BitOffset != 4) {
+					tag.ByteOffset = 0
+					tag.BitOffset = 4
+					tag.DataType = "bool"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'bit_4' para DB11.DBX0.4")
+				}
+
+				if tag.Name == "bit_5" && (tag.ByteOffset != 0 || tag.BitOffset != 5) {
+					tag.ByteOffset = 0
+					tag.BitOffset = 5
+					tag.DataType = "bool"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'bit_5' para DB11.DBX0.5")
+				}
+
+				if tag.Name == "bit_6" && (tag.ByteOffset != 0 || tag.BitOffset != 6) {
+					tag.ByteOffset = 0
+					tag.BitOffset = 6
+					tag.DataType = "bool"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'bit_6' para DB11.DBX0.6")
+				}
+
+				if tag.Name == "bit_7" && (tag.ByteOffset != 0 || tag.BitOffset != 7) {
+					tag.ByteOffset = 0
+					tag.BitOffset = 7
+					tag.DataType = "bool"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'bit_7' para DB11.DBX0.7")
+				}
+
+				if tag.Name == "bit_8" && (tag.ByteOffset != 1 || tag.BitOffset != 0) {
+					tag.ByteOffset = 1
+					tag.BitOffset = 0
+					tag.DataType = "bool"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'bit_8' para DB11.DBX1.0")
+				}
+
+				if tag.Name == "bit_9" && (tag.ByteOffset != 1 || tag.BitOffset != 1) {
+					tag.ByteOffset = 1
+					tag.BitOffset = 1
+					tag.DataType = "bool"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'bit_9' para DB11.DBX1.1")
+				}
+
+				if tag.Name == "int" && (tag.ByteOffset != 2 || tag.BitOffset != 0) {
+					tag.ByteOffset = 2
+					tag.BitOffset = 0
+					tag.DataType = "int"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'int' para DB11.DBX2.0")
+				}
+
+				if tag.Name == "int_1" && (tag.ByteOffset != 4 || tag.BitOffset != 0) {
+					tag.ByteOffset = 4
+					tag.BitOffset = 0
+					tag.DataType = "int"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'int_1' para DB11.DBX4.0")
+				}
+
+				if tag.Name == "int_2" && (tag.ByteOffset != 6 || tag.BitOffset != 0) {
+					tag.ByteOffset = 6
+					tag.BitOffset = 0
+					tag.DataType = "int"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'int_2' para DB11.DBX6.0")
+				}
+
+				if tag.Name == "int_3" && (tag.ByteOffset != 8 || tag.BitOffset != 0) {
+					tag.ByteOffset = 8
+					tag.BitOffset = 0
+					tag.DataType = "int"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'int_3' para DB11.DBX8.0")
+				}
+
+				if tag.Name == "int_4" && (tag.ByteOffset != 10 || tag.BitOffset != 0) {
+					tag.ByteOffset = 10
+					tag.BitOffset = 0
+					tag.DataType = "int"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'int_4' para DB11.DBX10.0")
+				}
+
+				if tag.Name == "int_5" && (tag.ByteOffset != 12 || tag.BitOffset != 0) {
+					tag.ByteOffset = 12
+					tag.BitOffset = 0
+					tag.DataType = "int"
+					needsUpdate = true
+					log.Printf("Corrigindo endereço da tag 'int_5' para DB11.DBX12.0")
+				}
+
+				// Se a tag precisar ser atualizada, salve as alterações
+				if needsUpdate {
+					if err := s.UpdateTag(tag); err != nil {
+						log.Printf("Erro ao atualizar tag %s: %v", tag.Name, err)
+					} else {
+						log.Printf("Tag %s atualizada com sucesso", tag.Name)
+					}
+				}
+			}
+		}
+	}
+
+	log.Println("Verificação de endereços concluída")
+	return nil
 }

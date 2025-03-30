@@ -3,6 +3,8 @@ package domain
 import (
 	"errors"
 	"time"
+
+	"github.com/go-redis/redis/v8"
 )
 
 // PLC representa um dispositivo PLC no sistema
@@ -26,7 +28,7 @@ type PLCTag struct {
 	Description    string      `json:"description"`
 	DBNumber       int         `json:"db_number"`
 	ByteOffset     int         `json:"byte_offset"`
-	BitOffset      int         `json:"bit_offset"` // Novo campo para offset de bit (0-7)
+	BitOffset      int         `json:"bit_offset"` // Offset de bit (0-7)
 	DataType       string      `json:"data_type"`  // "real", "int", "word", "bool", "string"
 	ScanRate       int         `json:"scan_rate"`  // em milissegundos
 	MonitorChanges bool        `json:"monitor_changes"`
@@ -50,6 +52,29 @@ type TagValue struct {
 	TagID     int         `json:"tag_id"`
 	Value     interface{} `json:"value"`
 	Timestamp time.Time   `json:"timestamp"`
+}
+
+// PLCConnectionStats contém estatísticas de uma conexão com PLC
+type PLCConnectionStats struct {
+	PLCID         int       `json:"plc_id"`
+	Name          string    `json:"name"`
+	Status        string    `json:"status"`
+	TagCount      int       `json:"tag_count"`
+	LastConnected time.Time `json:"last_connected"`
+	ReadErrors    int64     `json:"read_errors"`
+	WriteErrors   int64     `json:"write_errors"`
+}
+
+// PLCManagerStats contém estatísticas do gerenciador de PLCs
+type PLCManagerStats struct {
+	ActivePLCs      int                        `json:"active_plcs"`
+	TotalTags       int                        `json:"total_tags"`
+	TagsRead        int64                      `json:"tags_read"`
+	TagsWritten     int64                      `json:"tags_written"`
+	ReadErrors      int64                      `json:"read_errors"`
+	WriteErrors     int64                      `json:"write_errors"`
+	LastUpdated     time.Time                  `json:"last_updated"`
+	ConnectionStats map[int]PLCConnectionStats `json:"connections"`
 }
 
 // PLCRepository define operações com PLCs no banco de dados
@@ -93,12 +118,16 @@ type PLCService interface {
 	StopMonitoring() error
 	WriteTagValue(tagName string, value interface{}) error
 	GetTagValue(plcID int, tagID int) (*TagValue, error)
+	GetPLCStats() PLCManagerStats
 }
 
 // PLCCache define operações para cache de valores de tags
 type PLCCache interface {
 	SetTagValue(plcID int, tagID int, value interface{}) error
 	GetTagValue(plcID int, tagID int) (*TagValue, error)
+	BatchSetTagValues(values []TagValue) error
+	GetMultipleTagValues(queries []struct{ PLCID, TagID int }) ([]TagValue, error)
+	GetRedisClient() *redis.Client
 }
 
 // Erros comuns

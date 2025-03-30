@@ -4,6 +4,7 @@ import (
 	"app_padrao/internal/domain"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -272,4 +273,15 @@ func (h *PLCHandler) WriteTagValue(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// GetPLCStatus retorna o status e estatísticas de monitoramento de PLCs
+func (h *PLCHandler) GetPLCStatus(c *gin.Context) {
+	// Usar o método GetPLCStats do PLCService para obter estatísticas
+	stats := h.plcService.GetPLCStats()
+
+	c.JSON(http.StatusOK, gin.H{
+		"stats": stats,
+		"time":  time.Now().Format(time.RFC3339),
+	})
 }

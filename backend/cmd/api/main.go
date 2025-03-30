@@ -40,7 +40,7 @@ func main() {
 	profileRepo := repository.NewProfileRepository(db)
 	themeRepo := repository.NewThemeRepository(db)
 
-	// Inicializar repositórios PLC
+	// Inicializar repositórios PLC PostgreSQL
 	plcRepo := repository.NewPLCRepository(db)
 	plcTagRepo := repository.NewPLCTagRepository(db)
 
@@ -55,13 +55,21 @@ func main() {
 		log.Fatalf("Falha ao conectar ao Redis: %v", err)
 	}
 
+	// Verificar saúde do Redis
+	if err := redisCache.VerifyRedisHealth(); err != nil {
+		log.Printf("Aviso: Redis apresentou problemas na verificação de saúde: %v", err)
+		log.Println("Continuando mesmo assim, mas operações Redis podem falhar")
+	} else {
+		log.Println("Verificação de saúde do Redis concluída com sucesso")
+	}
+
 	// Inicializar serviços
 	userService := service.NewUserService(userRepo, cfg.JWT.SecretKey, cfg.JWT.ExpirationHours)
 	roleService := service.NewRoleService(roleRepo)
 	profileService := service.NewProfileService(profileRepo)
 	themeService := service.NewThemeService(themeRepo)
 
-	// Inicializar serviço PLC
+	// Inicializar serviço PLC com arquitetura Redis
 	plcService := service.NewPLCService(plcRepo, plcTagRepo, redisCache)
 
 	// Inicializar handlers
@@ -92,6 +100,14 @@ func main() {
 		log.Printf("Erro ao iniciar monitoramento de PLCs: %v", err)
 	} else {
 		log.Println("Monitoramento de PLCs iniciado com sucesso")
+
+		// Verificar se os endereços das tags correspondem aos do PLC
+		if err := plcService.VerifyTagAddresses(); err != nil {
+			log.Printf("Erro ao verificar endereços das tags: %v", err)
+		}
+
+		// Iniciar monitor de depuração para visualizar valores
+		plcService.StartDebugMonitor()
 	}
 
 	// Configurar graceful shutdown
