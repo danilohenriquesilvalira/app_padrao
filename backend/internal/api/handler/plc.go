@@ -285,3 +285,58 @@ func (h *PLCHandler) GetPLCStatus(c *gin.Context) {
 		"time":  time.Now().Format(time.RFC3339),
 	})
 }
+
+// DiagnosticTags verifica e repara problemas com as tags
+func (h *PLCHandler) DiagnosticTags(c *gin.Context) {
+	results, err := h.plcService.DiagnosticTags()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, results)
+}
+
+// ResetPLCConnection força uma reconexão com um PLC específico
+func (h *PLCHandler) ResetPLCConnection(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
+		return
+	}
+
+	err = h.plcService.ResetPLCConnection(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Reconexão com o PLC solicitada com sucesso",
+		"time":    time.Now().Format(time.RFC3339),
+	})
+}
+
+// GetPLCHealth retorna o status de saúde de todos os PLCs
+func (h *PLCHandler) GetPLCHealth(c *gin.Context) {
+	health, err := h.plcService.CheckPLCHealth()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"health": health,
+		"time":   time.Now().Format(time.RFC3339),
+	})
+}
+
+// GetDetailedStats retorna estatísticas detalhadas do sistema
+func (h *PLCHandler) GetDetailedStats(c *gin.Context) {
+	stats := h.plcService.GetStatistics()
+
+	c.JSON(http.StatusOK, gin.H{
+		"statistics": stats,
+		"time":       time.Now().Format(time.RFC3339),
+	})
+}

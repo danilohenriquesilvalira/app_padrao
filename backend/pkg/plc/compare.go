@@ -1,6 +1,7 @@
 package plc
 
 import (
+	"log"
 	"math"
 	"reflect"
 )
@@ -17,6 +18,13 @@ func CompareValues(old, new interface{}) bool {
 		return false
 	}
 
+	// Log para depuração da comparação
+	oldType := reflect.TypeOf(old)
+	newType := reflect.TypeOf(new)
+	if oldType != newType {
+		log.Printf("CompareValues: Comparando valores de tipos diferentes: %T e %T", old, new)
+	}
+
 	// Se os tipos são exatamente iguais, para números usa tolerância.
 	if reflect.TypeOf(old) == reflect.TypeOf(new) {
 		switch old.(type) {
@@ -24,8 +32,12 @@ func CompareValues(old, new interface{}) bool {
 			oldNum, okOld := toFloat64(old)
 			newNum, okNew := toFloat64(new)
 			if okOld && okNew {
-				return math.Abs(oldNum-newNum) < 1e-6
+				// Usa tolerância aumentada para evitar falsas mudanças por arredondamento
+				return math.Abs(oldNum-newNum) < 1e-5
 			}
+		case bool:
+			// Comparação direta para booleanos
+			return old.(bool) == new.(bool)
 		}
 		// Para os demais tipos, pode usar comparação direta.
 		return old == new
@@ -35,11 +47,28 @@ func CompareValues(old, new interface{}) bool {
 	oldNum, okOld := toFloat64(old)
 	newNum, okNew := toFloat64(new)
 	if okOld && okNew {
-		return math.Abs(oldNum-newNum) < 1e-6
+		return math.Abs(oldNum-newNum) < 1e-5
 	}
 
-	// Fallback para comparação profunda.
-	return reflect.DeepEqual(old, new)
+	// Se um dos valores é booleano, tenta uma comparação especial
+	if oldBool, okOld := old.(bool); okOld {
+		if newNum, okNew := toFloat64(new); okNew {
+			return (oldBool && newNum != 0) || (!oldBool && newNum == 0)
+		}
+	}
+	if newBool, okNew := new.(bool); okNew {
+		if oldNum, okOld := toFloat64(old); okOld {
+			return (newBool && oldNum != 0) || (!newBool && oldNum == 0)
+		}
+	}
+
+	// Fallback para comparação profunda e log do resultado
+	result := reflect.DeepEqual(old, new)
+	if !result {
+		log.Printf("CompareValues: Valores diferentes após DeepEqual: %v (%T) vs %v (%T)",
+			old, old, new, new)
+	}
+	return result
 }
 
 // toFloat64 tenta converter um valor numérico para float64.
@@ -69,7 +98,22 @@ func toFloat64(v interface{}) (float64, bool) {
 		return float64(n), true
 	case float64:
 		return n, true
+	case bool:
+		if n {
+			return 1.0, true
+		}
+		return 0.0, true
 	default:
+		// Tenta converter outros tipos numéricos
+		value := reflect.ValueOf(v)
+		switch value.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			return float64(value.Int()), true
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			return float64(value.Uint()), true
+		case reflect.Float32, reflect.Float64:
+			return value.Float(), true
+		}
 		return 0, false
 	}
 }

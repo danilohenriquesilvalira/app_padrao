@@ -119,6 +119,14 @@ type PLCService interface {
 	WriteTagValue(tagName string, value interface{}) error
 	GetTagValue(plcID int, tagID int) (*TagValue, error)
 	GetPLCStats() PLCManagerStats
+
+	// Métodos adicionados ou atualizados:
+	ResetPLCConnection(plcID int) error
+	CheckPLCHealth() (map[int]string, error)
+	GetStatistics() map[string]interface{}
+	DiagnosticTags() (map[string]interface{}, error)
+	StartDebugMonitor()
+	VerifyTagAddresses() error
 }
 
 // PLCCache define operações para cache de valores de tags
@@ -133,6 +141,6 @@ type PLCCache interface {
 // Erros comuns
 var (
 	ErrPLCNotFound     = errors.New("PLC não encontrado")
-	ErrPLCTagNotFound  = errors.New("Tag de PLC não encontrada")
-	ErrInvalidDataType = errors.New("Tipo de dados inválido")
+	ErrPLCTagNotFound  = errors.New("tag de PLC não encontrada")
+	ErrInvalidDataType = errors.New("tipo de dados inválido")
 )

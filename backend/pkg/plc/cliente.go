@@ -189,7 +189,14 @@ func (c *Client) ReadTag(dbNumber int, byteOffset int, dataType string, bitOffse
 
 	var size int
 
-	// Determinar o tamanho baseado no tipo de dado
+	// Validação explícita do tipo de dados para evitar interpretação incorreta
+	dataType = strings.ToLower(strings.TrimSpace(dataType))
+
+	// Log detalhado da requisição para facilitar depuração
+	log.Printf("ReadTag - Lendo tag: DB%d.DBX%d [Tipo: %s, BitOffset: %d]",
+		dbNumber, byteOffset, dataType, bitOffset)
+
+	// Determinar o tamanho baseado no tipo de dado com validação mais rigorosa
 	switch dataType {
 	case "real":
 		size = 4
@@ -197,12 +204,23 @@ func (c *Client) ReadTag(dbNumber int, byteOffset int, dataType string, bitOffse
 		size = 4
 	case "int", "int16", "word", "uint16":
 		size = 2
-	case "sint", "int8", "usint", "byte", "uint8", "bool":
+	case "sint", "int8", "usint", "byte", "uint8":
+		size = 1
+	case "bool":
 		size = 1
 	case "string":
 		size = 256
 	default:
-		return nil, fmt.Errorf("tipo de dado não suportado: %s", dataType)
+		// Se o tipo não for reconhecido, tente inferir um tipo adequado
+		log.Printf("AVISO: Tipo de dado não reconhecido: '%s'. Tentando inferir tipo adequado.", dataType)
+		if bitOffset > 0 {
+			dataType = "bool"
+			size = 1
+		} else {
+			// Padrão para um tipo genérico quando não é possível determinar
+			dataType = "word"
+			size = 2
+		}
 	}
 
 	// Ler os bytes do PLC - AQUI É O PONTO CRÍTICO: leitura real do PLC
@@ -219,45 +237,52 @@ func (c *Client) ReadTag(dbNumber int, byteOffset int, dataType string, bitOffse
 	}
 
 	// Interpretar os bytes conforme o tipo de dado
+	var resultado interface{}
+
 	switch dataType {
 	case "real":
-		return math.Float32frombits(binary.BigEndian.Uint32(buf)), nil
+		resultado = math.Float32frombits(binary.BigEndian.Uint32(buf))
 
 	case "dint", "int32":
-		return int32(binary.BigEndian.Uint32(buf)), nil
+		resultado = int32(binary.BigEndian.Uint32(buf))
 
 	case "dword", "uint32":
-		return binary.BigEndian.Uint32(buf), nil
+		resultado = binary.BigEndian.Uint32(buf)
 
 	case "int", "int16":
-		return int16(binary.BigEndian.Uint16(buf)), nil
+		resultado = int16(binary.BigEndian.Uint16(buf))
 
 	case "word", "uint16":
-		return binary.BigEndian.Uint16(buf), nil
+		resultado = binary.BigEndian.Uint16(buf)
 
 	case "sint", "int8":
-		return int8(buf[0]), nil
+		resultado = int8(buf[0])
 
 	case "usint", "byte", "uint8":
-		return buf[0], nil
+		resultado = buf[0]
 
 	case "bool":
 		// Usa o bitOffset explicitamente para selecionar o bit correto
 		if bitOffset >= 0 && bitOffset <= 7 {
-			return ((buf[0] >> uint(bitOffset)) & 0x01) == 1, nil
+			resultado = ((buf[0] >> uint(bitOffset)) & 0x01) == 1
+		} else {
+			// Caso contrário, assume primeiro bit
+			resultado = (buf[0] & 0x01) == 1
 		}
-		// Caso contrário, assume primeiro bit
-		return (buf[0] & 0x01) == 1, nil
 
 	case "string":
 		strLen := int(buf[1])
 		if strLen > 254 {
 			strLen = 254
 		}
-		return string(buf[2 : 2+strLen]), nil
+		resultado = string(buf[2 : 2+strLen])
 	}
 
-	return nil, fmt.Errorf("tipo de dado não implementado: %s", dataType)
+	// Log detalhado do resultado
+	log.Printf("ReadTag - Lido com sucesso DB%d.DBX%d [Tipo: %s]: %v",
+		dbNumber, byteOffset, dataType, resultado)
+
+	return resultado, nil
 }
 
 // WriteTag escreve um valor no PLC
@@ -269,6 +294,13 @@ func (c *Client) WriteTag(dbNumber int, byteOffset int, dataType string, bitOffs
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Normalizar o tipo de dados
+	dataType = strings.ToLower(strings.TrimSpace(dataType))
+
+	// Log detalhado da operação de escrita
+	log.Printf("WriteTag - Escrevendo na tag: DB%d.DBX%d [Tipo: %s, BitOffset: %d] Valor: %v (%T)",
+		dbNumber, byteOffset, dataType, bitOffset, value, value)
 
 	var buf []byte
 
@@ -485,10 +517,17 @@ func (c *Client) WriteTag(dbNumber int, byteOffset int, dataType string, bitOffs
 
 	// Escrever os bytes no PLC - AQUI É O PONTO CRÍTICO: escrita real no PLC
 	err := c.client.AGWriteDB(dbNumber, byteOffset, len(buf), buf)
-	if err != nil && isNetworkError(err) {
-		c.isConnected = false
+	if err != nil {
+		if isNetworkError(err) {
+			c.isConnected = false
+		}
+		return fmt.Errorf("erro ao escrever dados no PLC (DB%d.%d): %w", dbNumber, byteOffset, err)
 	}
-	return err
+
+	log.Printf("WriteTag - Escrito com sucesso na tag DB%d.DBX%d [Tipo: %s]",
+		dbNumber, byteOffset, dataType)
+
+	return nil
 }
 
 // isNetworkError verifica se um erro é relacionado a rede

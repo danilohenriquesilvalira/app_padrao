@@ -43,6 +43,43 @@ export interface WriteTagRequest {
   value: any;
 }
 
+export interface PLCHealth {
+  [plcId: number]: string;
+}
+
+export interface PLCStatistics {
+  plc_status: {
+    [status: string]: number;
+  };
+  total_plcs: number;
+  total_tags: number;
+  active_tags: number;
+  tags_per_plc: {
+    [plcId: number]: number;
+  };
+  manager: any;
+  time: string;
+}
+
+export interface DiagnosticResult {
+  plcs: {
+    [plcId: number]: {
+      name: string;
+      tags_count: number;
+      issues: Array<{
+        tag_id: number;
+        tag_name: string;
+        issue: string;
+        action: string;
+        result: string;
+      }>;
+    };
+  };
+  fixed_tags: number;
+  error_tags: number;
+  timestamp: string;
+}
+
 export const plcApi = {
   // PLCs
   getAllPLCs: async (): Promise<PLC[]> => {
@@ -152,6 +189,62 @@ export const plcApi = {
       await api.post('/api/plc/tag/write', payload);
     } catch (error) {
       console.error(`Erro ao escrever valor na tag ${tagName}:`, error);
+      throw error;
+    }
+  },
+
+  // NOVAS FUNCIONALIDADES
+
+  // Diagnóstico de tags
+  runDiagnosticTags: async (): Promise<DiagnosticResult> => {
+    try {
+      const response = await api.get('/api/plc/diagnostic/tags');
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao executar diagnóstico de tags:', error);
+      throw error;
+    }
+  },
+
+  // Resetar conexão com PLC
+  resetPLCConnection: async (plcId: number): Promise<void> => {
+    try {
+      await api.post(`/api/plc/reset/${plcId}`);
+    } catch (error) {
+      console.error(`Erro ao resetar conexão do PLC ${plcId}:`, error);
+      throw error;
+    }
+  },
+
+  // Verificar saúde dos PLCs
+  getPLCHealth: async (): Promise<PLCHealth> => {
+    try {
+      const response = await api.get('/api/plc/health');
+      return response.data.health;
+    } catch (error) {
+      console.error('Erro ao verificar saúde dos PLCs:', error);
+      throw error;
+    }
+  },
+
+  // Obter estatísticas detalhadas
+  getPLCStatistics: async (): Promise<PLCStatistics> => {
+    try {
+      const response = await api.get('/api/plc/stats');
+      return response.data.statistics;
+    } catch (error) {
+      console.error('Erro ao obter estatísticas de PLCs:', error);
+      throw error;
+    }
+  },
+
+  // Obter status geral dos PLCs (compatibilidade com implementação anterior)
+  getPLCStatus: async (): Promise<any> => {
+    try {
+      const response = await api.get('/api/plc/status');
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao obter status dos PLCs:', error);
       throw error;
     }
   }

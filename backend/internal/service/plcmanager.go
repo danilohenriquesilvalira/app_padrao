@@ -509,6 +509,14 @@ func (m *PLCManager) monitorPLCTags(ctx context.Context, plcConfig domain.PLC, c
 		return
 	}
 
+	// Log de verificação para tags
+	for _, tag := range tags {
+		if tag.Active {
+			log.Printf("PLC %d - Tag configurada: %s (ID: %d, Tipo: %s, DB%d.DBX%d.%d, ScanRate: %d ms)",
+				plcConfig.ID, tag.Name, tag.ID, tag.DataType, tag.DBNumber, tag.ByteOffset, tag.BitOffset, tag.ScanRate)
+		}
+	}
+
 	// Agrupar tags por taxa de scan
 	tagsByRate := make(map[int][]domain.PLCTag)
 	for _, tag := range tags {
@@ -547,6 +555,19 @@ func (m *PLCManager) monitorPLCTags(ctx context.Context, plcConfig domain.PLC, c
 						// Converter ByteOffset de float64 para int
 						byteOffset := int(tag.ByteOffset)
 
+						// Verificação adicional para garantir que o tipo é válido
+						if tag.DataType == "" {
+							log.Printf("ALERTA: Tag %s (ID=%d) não tem tipo definido, assumindo 'word'",
+								tag.Name, tag.ID)
+							tag.DataType = "word"
+						}
+
+						// Adicionar log para rastrear tipo de dados
+						if m.enableDetailedLogging {
+							log.Printf("Lendo tag %s (ID=%d) - Tipo: %s, DB%d.DBX%d.%d",
+								tag.Name, tag.ID, tag.DataType, tag.DBNumber, byteOffset, tag.BitOffset)
+						}
+
 						value, err := conn.ReadTag(
 							tag.DBNumber,
 							byteOffset,
@@ -567,6 +588,12 @@ func (m *PLCManager) monitorPLCTags(ctx context.Context, plcConfig domain.PLC, c
 							}
 							m.statsMutex.Unlock()
 							continue
+						}
+
+						// Verificar o tipo do valor retornado
+						if m.enableDetailedLogging {
+							log.Printf("Tag %s (ID=%d): Tipo definido '%s', valor lido do tipo %T: %v",
+								tag.Name, tag.ID, tag.DataType, value, value)
 						}
 
 						// Verificar se precisamos atualizar o cache
@@ -598,7 +625,7 @@ func (m *PLCManager) monitorPLCTags(ctx context.Context, plcConfig domain.PLC, c
 								Timestamp: time.Now(),
 							})
 
-							// NOVO - Logging detalhado de valores
+							// Logging detalhado de valores
 							if m.enableDetailedLogging {
 								// Formatação mais legível do valor baseado no tipo de dados
 								var valorFormatado string
@@ -607,7 +634,7 @@ func (m *PLCManager) monitorPLCTags(ctx context.Context, plcConfig domain.PLC, c
 									if v, ok := value.(float32); ok {
 										valorFormatado = fmt.Sprintf("%.3f", v)
 									} else {
-										valorFormatado = fmt.Sprintf("%v", value)
+										valorFormatado = fmt.Sprintf("%v (%T)", value, value)
 									}
 								case "bool":
 									if v, ok := value.(bool); ok {
@@ -617,7 +644,7 @@ func (m *PLCManager) monitorPLCTags(ctx context.Context, plcConfig domain.PLC, c
 											valorFormatado = "FALSE"
 										}
 									} else {
-										valorFormatado = fmt.Sprintf("%v", value)
+										valorFormatado = fmt.Sprintf("%v (%T)", value, value)
 									}
 								default:
 									valorFormatado = fmt.Sprintf("%v", value)
@@ -705,6 +732,19 @@ func (m *PLCManager) WriteTagByName(tagName string, value interface{}) error {
 
 	// Converter ByteOffset para inteiro
 	byteOffset := int(tag.ByteOffset)
+
+	// Verificação adicional para garantir que o tipo da tag é válido
+	if tag.DataType == "" {
+		log.Printf("ALERTA: Tag %s não tem tipo definido, assumindo 'word' para escrita", tag.Name)
+		tag.DataType = "word"
+	}
+
+	// Normalizar o tipo de dados
+	tag.DataType = strings.ToLower(strings.TrimSpace(tag.DataType))
+
+	// Log detalhado da operação de escrita
+	log.Printf("WriteTagByName - Escrevendo na tag %s: Tipo=%s, DB%d.DBX%d.%d, Valor=%v (%T)",
+		tag.Name, tag.DataType, tag.DBNumber, byteOffset, tag.BitOffset, value, value)
 
 	// Escrever o valor na tag
 	if err := conn.WriteTag(

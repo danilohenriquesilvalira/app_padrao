@@ -94,6 +94,13 @@ func SetupRoutes(
 			plc.DELETE("/tags/:id", middleware.PermissionMiddleware(userRepo, "plc_tag_delete"), plcHandler.DeletePLCTag)
 
 			plc.POST("/tag/write", middleware.PermissionMiddleware(userRepo, "plc_write"), plcHandler.WriteTagValue)
+
+			// Novas rotas para diagnóstico e estatísticas
+			plc.GET("/diagnostic/tags", plcHandler.DiagnosticTags)
+			plc.POST("/reset/:id", middleware.PermissionMiddleware(userRepo, "plc_admin"), plcHandler.ResetPLCConnection)
+			plc.GET("/health", plcHandler.GetPLCHealth)
+			plc.GET("/stats", plcHandler.GetDetailedStats)
+			plc.GET("/status", plcHandler.GetPLCStatus) // Rota existente para compatibilidade
 		}
 	}
 }

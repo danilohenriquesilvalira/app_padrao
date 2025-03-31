@@ -5,6 +5,7 @@ import (
 	"app_padrao/internal/repository"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 )
 
@@ -358,12 +359,31 @@ func (s *PLCService) CreateTag(tag domain.PLCTag) (int, error) {
 		return 0, fmt.Errorf("tipo de dados da tag é obrigatório")
 	}
 
-	// Validar tipo de dados
-	switch tag.DataType {
-	case "real", "int", "word", "bool", "string":
-		// Tipos válidos
-	default:
-		return 0, domain.ErrInvalidDataType
+	// Normalizar o tipo de dados para evitar problemas de case-sensitivity
+	tag.DataType = strings.ToLower(strings.TrimSpace(tag.DataType))
+
+	// Validar tipo de dados com verificação mais rigorosa
+	validTypes := map[string]bool{
+		"real":   true,
+		"int":    true,
+		"word":   true,
+		"bool":   true,
+		"string": true,
+		"dint":   true,
+		"dword":  true,
+		"int16":  true,
+		"int32":  true,
+		"uint16": true,
+		"uint32": true,
+		"sint":   true,
+		"usint":  true,
+		"byte":   true,
+		"int8":   true,
+		"uint8":  true,
+	}
+
+	if !validTypes[tag.DataType] {
+		return 0, fmt.Errorf("tipo de dados '%s' não é suportado. Tipos válidos: real, int, word, bool, string, etc", tag.DataType)
 	}
 
 	// Validar bit offset para tipo bool
@@ -374,6 +394,10 @@ func (s *PLCService) CreateTag(tag domain.PLCTag) (int, error) {
 	} else {
 		// Para outros tipos de dados, o bit offset deve ser 0
 		tag.BitOffset = 0
+
+		// Log para debug
+		log.Printf("CreateTag: Configurando tag '%s' com tipo '%s', o bit offset foi definido como 0",
+			tag.Name, tag.DataType)
 	}
 
 	// Verificar se o PLC existe
@@ -401,6 +425,10 @@ func (s *PLCService) CreateTag(tag domain.PLCTag) (int, error) {
 	_, err = s.redisTagRepo.Create(tag)
 	if err != nil {
 		log.Printf("Aviso: erro ao armazenar nova tag no Redis: %v", err)
+	} else {
+		// Log adicional para confirmar criação com sucesso
+		log.Printf("Tag criada com sucesso - ID: %d, Nome: %s, Tipo: %s, DB: %d, Byte: %d, Bit: %d",
+			id, tag.Name, tag.DataType, tag.DBNumber, tag.ByteOffset, tag.BitOffset)
 	}
 
 	return id, nil
@@ -417,12 +445,31 @@ func (s *PLCService) UpdateTag(tag domain.PLCTag) error {
 		return fmt.Errorf("tipo de dados da tag é obrigatório")
 	}
 
-	// Validar tipo de dados
-	switch tag.DataType {
-	case "real", "int", "word", "bool", "string":
-		// Tipos válidos
-	default:
-		return domain.ErrInvalidDataType
+	// Normalizar o tipo de dados para evitar problemas de case-sensitivity
+	tag.DataType = strings.ToLower(strings.TrimSpace(tag.DataType))
+
+	// Validar tipo de dados com verificação mais rigorosa
+	validTypes := map[string]bool{
+		"real":   true,
+		"int":    true,
+		"word":   true,
+		"bool":   true,
+		"string": true,
+		"dint":   true,
+		"dword":  true,
+		"int16":  true,
+		"int32":  true,
+		"uint16": true,
+		"uint32": true,
+		"sint":   true,
+		"usint":  true,
+		"byte":   true,
+		"int8":   true,
+		"uint8":  true,
+	}
+
+	if !validTypes[tag.DataType] {
+		return fmt.Errorf("tipo de dados '%s' não é suportado", tag.DataType)
 	}
 
 	// Validar bit offset para tipo bool
@@ -433,6 +480,10 @@ func (s *PLCService) UpdateTag(tag domain.PLCTag) error {
 	} else {
 		// Para outros tipos de dados, o bit offset deve ser 0
 		tag.BitOffset = 0
+
+		// Log para debug
+		log.Printf("UpdateTag: Configurando tag '%s' com tipo '%s', o bit offset foi definido como 0",
+			tag.Name, tag.DataType)
 	}
 
 	// Verificar se o PLC existe
@@ -464,6 +515,10 @@ func (s *PLCService) UpdateTag(tag domain.PLCTag) error {
 		if err != nil {
 			log.Printf("Aviso: erro ao criar tag no Redis após falha na atualização: %v", err)
 		}
+	} else {
+		// Log adicional para confirmar atualização com sucesso
+		log.Printf("Tag atualizada com sucesso - ID: %d, Nome: %s, Tipo: %s, DB: %d, Byte: %d, Bit: %d",
+			tag.ID, tag.Name, tag.DataType, tag.DBNumber, tag.ByteOffset, tag.BitOffset)
 	}
 
 	return nil
@@ -958,4 +1013,110 @@ func (s *PLCService) GetStatistics() map[string]interface{} {
 	stats["tags_per_plc"] = tagsPerPLC
 
 	return stats
+}
+
+// DiagnosticTags verifica a configuração de todas as tags e tenta corrigir inconsistências
+func (s *PLCService) DiagnosticTags() (map[string]interface{}, error) {
+	results := make(map[string]interface{})
+	var fixedTags, errorTags int
+
+	// Obter todos os PLCs
+	plcs, err := s.GetAll()
+	if err != nil {
+		return nil, fmt.Errorf("erro ao buscar PLCs: %v", err)
+	}
+
+	plcResults := make(map[int]map[string]interface{})
+
+	for _, plc := range plcs {
+		plcResult := make(map[string]interface{})
+		plcResult["name"] = plc.Name
+
+		// Buscar todas as tags do PLC
+		tags, err := s.GetPLCTags(plc.ID)
+		if err != nil {
+			plcResult["error"] = fmt.Sprintf("erro ao buscar tags: %v", err)
+			plcResults[plc.ID] = plcResult
+			errorTags++
+			continue
+		}
+
+		tagIssues := make([]map[string]interface{}, 0)
+
+		for _, tag := range tags {
+			// Verifica problemas com a tag
+			if tag.DataType == "" {
+				issue := map[string]interface{}{
+					"tag_id":   tag.ID,
+					"tag_name": tag.Name,
+					"issue":    "Tipo de dados ausente",
+					"action":   "Definido como 'word'",
+				}
+				tagIssues = append(tagIssues, issue)
+
+				// Corrigir a tag
+				tag.DataType = "word"
+				if err := s.UpdateTag(tag); err != nil {
+					issue["result"] = fmt.Sprintf("Erro ao corrigir: %v", err)
+					errorTags++
+				} else {
+					issue["result"] = "Corrigido com sucesso"
+					fixedTags++
+				}
+			} else if tag.DataType == "bool" && (tag.BitOffset < 0 || tag.BitOffset > 7) {
+				issue := map[string]interface{}{
+					"tag_id":   tag.ID,
+					"tag_name": tag.Name,
+					"issue":    fmt.Sprintf("Bit offset inválido (%d) para tipo bool", tag.BitOffset),
+					"action":   "Corrigido para valor entre 0 e 7",
+				}
+				tagIssues = append(tagIssues, issue)
+
+				// Corrigir bit offset
+				tag.BitOffset = tag.BitOffset % 8
+				if tag.BitOffset < 0 {
+					tag.BitOffset = 0
+				}
+
+				if err := s.UpdateTag(tag); err != nil {
+					issue["result"] = fmt.Sprintf("Erro ao corrigir: %v", err)
+					errorTags++
+				} else {
+					issue["result"] = "Corrigido com sucesso"
+					fixedTags++
+				}
+			} else if tag.DataType != "bool" && tag.BitOffset != 0 {
+				issue := map[string]interface{}{
+					"tag_id":   tag.ID,
+					"tag_name": tag.Name,
+					"issue": fmt.Sprintf("Bit offset (%d) definido para tipo não booleano (%s)",
+						tag.BitOffset, tag.DataType),
+					"action": "Bit offset definido como 0",
+				}
+				tagIssues = append(tagIssues, issue)
+
+				// Corrigir bit offset
+				tag.BitOffset = 0
+
+				if err := s.UpdateTag(tag); err != nil {
+					issue["result"] = fmt.Sprintf("Erro ao corrigir: %v", err)
+					errorTags++
+				} else {
+					issue["result"] = "Corrigido com sucesso"
+					fixedTags++
+				}
+			}
+		}
+
+		plcResult["tags_count"] = len(tags)
+		plcResult["issues"] = tagIssues
+		plcResults[plc.ID] = plcResult
+	}
+
+	results["plcs"] = plcResults
+	results["fixed_tags"] = fixedTags
+	results["error_tags"] = errorTags
+	results["timestamp"] = time.Now().Format(time.RFC3339)
+
+	return results, nil
 }
