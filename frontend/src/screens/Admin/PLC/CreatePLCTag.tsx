@@ -48,8 +48,8 @@ const CreatePLCTag = () => {
     description: '',
     db_number: '',
     byte_offset: '',
-    bit_offset: '0',  // Novo campo adicionado
-    data_type: 'real',
+    bit_offset: '0',  // Campo para o bit offset (0-7)
+    data_type: 'bool', // Alterado para bool por padrão para teste
     scan_rate: '1000',
     monitor_changes: true,
     can_write: false,
@@ -61,7 +61,7 @@ const CreatePLCTag = () => {
     name: '',
     db_number: '',
     byte_offset: '',
-    bit_offset: '',  // Novo campo para erros
+    bit_offset: '',  // Campo para erros de bit offset
     scan_rate: '',
   });
 
@@ -319,10 +319,10 @@ const CreatePLCTag = () => {
                 dropdownIconColor={theme.primary}
                 mode="dropdown"
               >
+                <Picker.Item label="Bool (Booleano)" value="bool" />
                 <Picker.Item label="Real (Float)" value="real" />
                 <Picker.Item label="Int (Inteiro)" value="int" />
                 <Picker.Item label="Word (Sem sinal)" value="word" />
-                <Picker.Item label="Bool (Booleano)" value="bool" />
                 <Picker.Item label="String (Texto)" value="string" />
               </Picker>
             </View>
@@ -358,20 +358,18 @@ const CreatePLCTag = () => {
               </View>
             </View>
 
-            {/* Novo campo para Bit Offset que só aparece quando o tipo é bool */}
-            {formData.data_type === 'bool' && (
-              <Input
-                label="Bit Offset (0-7)"
-                icon="git-branch"
-                placeholder="Ex: 0"
-                value={formData.bit_offset}
-                onChangeText={(text) => handleInputChange('bit_offset', text)}
-                error={errors.bit_offset}
-                keyboardType="numeric"
-                helperText="Posição do bit dentro do byte (0-7)"
-                required
-              />
-            )}
+            {/* Campo de Bit Offset - SEMPRE VISÍVEL PARA TESTES */}
+            <Input
+              label="Bit Offset (0-7)"
+              icon="git-branch"
+              placeholder="Ex: 0"
+              value={formData.bit_offset}
+              onChangeText={(text) => handleInputChange('bit_offset', text)}
+              error={errors.bit_offset}
+              keyboardType="numeric"
+              helperText="Posição do bit dentro do byte (0-7) para tags booleanas"
+              required={formData.data_type === 'bool'}
+            />
           </View>
 
           <View style={styles.formSection}>
