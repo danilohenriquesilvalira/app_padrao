@@ -35,6 +35,8 @@ const PLCDetails = () => {
   const [tags, setTags] = useState<PLCTag[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [healthStatus, setHealthStatus] = useState<string>('unknown');
+  const [isResetting, setIsResetting] = useState(false);
 
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -70,6 +72,16 @@ const PLCDetails = () => {
       const tagsData = await plcApi.getPLCTags(plcId);
       setTags(tagsData);
       
+      // Load health status
+      try {
+        const healthData = await plcApi.getPLCHealth();
+        if (healthData && healthData[plcId]) {
+          setHealthStatus(healthData[plcId]);
+        }
+      } catch (error) {
+        console.error('Erro ao carregar saúde do PLC:', error);
+      }
+      
       // Animate tags section after data is loaded
       Animated.timing(tagsAnim, {
         toValue: 0,
@@ -98,6 +110,20 @@ const PLCDetails = () => {
     }
   };
 
+  const getHealthStatusColor = (status: string) => {
+    if (status.startsWith('online')) return '#4CAF50';
+    if (status.startsWith('offline')) return '#F44336';
+    if (status.startsWith('falha')) return '#FF9800';
+    return '#9E9E9E'; // unknown or undefined
+  };
+
+  const getHealthStatusLabel = (status: string) => {
+    if (status.startsWith('online')) return 'Online';
+    if (status.startsWith('offline')) return 'Offline';
+    if (status.startsWith('falha')) return 'Falha';
+    return 'Desconhecido';
+  };
+
   const formatDateTime = (dateString?: string) => {
     if (!dateString) return 'N/A';
     
@@ -110,6 +136,29 @@ const PLCDetails = () => {
       minute: '2-digit',
       second: '2-digit'
     }).format(date);
+  };
+
+  const handleResetConnection = async () => {
+    try {
+      setIsResetting(true);
+      await plcApi.resetPLCConnection(plcId);
+      
+      Alert.alert(
+        'Reconexão Iniciada',
+        'O processo de reconexão com o PLC foi iniciado. Atualize a página em alguns segundos para ver o novo status.',
+        [{ text: 'OK' }]
+      );
+      
+      // Aguardar alguns segundos antes de recarregar os dados para dar tempo ao backend
+      setTimeout(() => {
+        loadData();
+      }, 5000);
+    } catch (error) {
+      console.error('Erro ao resetar conexão:', error);
+      Alert.alert('Erro', 'Não foi possível resetar a conexão com o PLC');
+    } finally {
+      setIsResetting(false);
+    }
   };
 
   if (loading && !refreshing && !plc) {
@@ -223,6 +272,62 @@ const PLCDetails = () => {
             </View>
           </Animated.View>
           
+          {/* Nova seção para informações de saúde e botão de reset */}
+          <Animated.View 
+            style={[
+              styles.healthCard,
+              { 
+                backgroundColor: isDarkMode ? theme.surface : '#fff',
+                borderColor: isDarkMode ? theme.border : '#e0e0e0' 
+              },
+              { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }
+            ]}
+          >
+            <View style={styles.cardHeader}>
+              <Feather name="activity" size={20} color={theme.primary} />
+              <Text style={[styles.cardTitle, { color: theme.text }]}>
+                Status de Conexão
+              </Text>
+            </View>
+            
+            <View style={styles.healthSection}>
+              <View style={styles.healthStatus}>
+                <View style={[
+                  styles.healthBadge,
+                  { backgroundColor: getHealthStatusColor(healthStatus) + '20' }
+                ]}>
+                  <View style={[
+                    styles.healthDot,
+                    { backgroundColor: getHealthStatusColor(healthStatus) }
+                  ]} />
+                  <Text style={[
+                    styles.healthText,
+                    { color: getHealthStatusColor(healthStatus) }
+                  ]}>
+                    {getHealthStatusLabel(healthStatus)}
+                  </Text>
+                </View>
+                
+                {healthStatus !== 'online' && (
+                  <Text style={[styles.healthDetails, { color: theme.textSecondary }]}>
+                    {healthStatus.includes(':') ? healthStatus.split(':')[1].trim() : ''}
+                  </Text>
+                )}
+              </View>
+              
+              <Button
+                title="Reconectar"
+                onPress={handleResetConnection}
+                loading={isResetting}
+                disabled={isResetting}
+                variant="secondary"
+                icon={<Feather name="refresh-cw" size={16} color={isDarkMode ? '#fff' : theme.secondary} />}
+                full
+                style={styles.resetButton}
+              />
+            </View>
+          </Animated.View>
+          
           <Animated.View 
             style={[
               styles.infoCard,
@@ -268,6 +373,53 @@ const PLCDetails = () => {
                 </Text>
               </View>
             )}
+          </Animated.View>
+          
+          {/* Nova seção para ações avançadas */}
+          <Animated.View 
+            style={[
+              styles.actionCard,
+              { 
+                backgroundColor: isDarkMode ? theme.surface : '#fff',
+                borderColor: isDarkMode ? theme.border : '#e0e0e0' 
+              },
+              { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }
+            ]}
+          >
+            <View style={styles.cardHeader}>
+              <Feather name="zap" size={20} color={theme.primary} />
+              <Text style={[styles.cardTitle, { color: theme.text }]}>
+                Ações Avançadas
+              </Text>
+            </View>
+            
+            <View style={styles.advancedActionsContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.advancedActionButton,
+                  { backgroundColor: isDarkMode ? theme.surfaceVariant : '#f0f4f8' }
+                ]}
+                onPress={() => navigation.navigate('PLCTagMonitor', { plcId: plc.id })}
+              >
+                <Feather name="monitor" size={20} color={theme.primary} />
+                <Text style={[styles.actionButtonText, { color: theme.text }]}>
+                  Monitor de Tags
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.advancedActionButton,
+                  { backgroundColor: isDarkMode ? theme.surfaceVariant : '#f0f4f8' }
+                ]}
+                onPress={() => navigation.navigate('PLCDiagnostic')}
+              >
+                <Feather name="activity" size={20} color={theme.secondary} />
+                <Text style={[styles.actionButtonText, { color: theme.text }]}>
+                  Diagnóstico
+                </Text>
+              </TouchableOpacity>
+            </View>
           </Animated.View>
           
           <Animated.View 
@@ -477,6 +629,49 @@ const styles = StyleSheet.create({
     borderTopColor: '#f0f0f0',
     paddingTop: 16,
   },
+  healthCard: {
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    borderWidth: 1,
+  },
+  healthSection: {
+    marginBottom: 8,
+  },
+  healthStatus: {
+    marginBottom: 16,
+  },
+  healthBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 16,
+    marginBottom: 8,
+  },
+  healthDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 6,
+  },
+  healthText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  healthDetails: {
+    fontSize: 14,
+    paddingHorizontal: 4,
+  },
+  resetButton: {
+    marginTop: 8,
+  },
   infoCard: {
     borderRadius: 12,
     padding: 16,
@@ -511,6 +706,35 @@ const styles = StyleSheet.create({
   infoValue: {
     fontSize: 14,
     fontWeight: '500',
+  },
+  actionCard: {
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    borderWidth: 1,
+  },
+  advancedActionsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  advancedActionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginHorizontal: 4,
+  },
+  actionButtonText: {
+    fontWeight: '500',
+    marginLeft: 8,
   },
   tagsCard: {
     borderRadius: 12,

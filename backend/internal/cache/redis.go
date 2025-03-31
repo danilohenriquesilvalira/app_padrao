@@ -77,6 +77,7 @@ func (r *RedisCache) GetTagValue(plcID, tagID int) (*domain.TagValue, error) {
 	data, err := r.client.Get(r.ctx, key).Result()
 	if err != nil {
 		if err == redis.Nil {
+			// CORREÇÃO: Retornar explicitamente nil em vez de um valor padrão
 			log.Printf("Valor não encontrado no Redis: %s", key)
 			return nil, nil // Valor não encontrado, não é erro
 		}
@@ -101,6 +102,11 @@ func (r *RedisCache) GetTagValue(plcID, tagID int) (*domain.TagValue, error) {
 	if err != nil {
 		log.Printf("Erro ao converter timestamp: %v", err)
 		return nil, err
+	}
+
+	// Verificar se o valor é nil ou vazio
+	if valueMap["value"] == nil {
+		log.Printf("Valor nulo encontrado no Redis para plc:%d:tag:%d", plcID, tagID)
 	}
 
 	log.Printf("Valor lido do Redis com sucesso: plc:%d:tag:%d = %v", plcID, tagID, valueMap["value"])

@@ -19,6 +19,7 @@ import EditUser from '../screens/Admin/EditUser';
 import CreateUser from '../screens/Admin/CreateUser';
 
 // PLC Screens
+import PLCDashboard from '../screens/Admin/PLC/PLCDashboard';
 import PLCList from '../screens/Admin/PLC/PLCList';
 import CreatePLC from '../screens/Admin/PLC/CreatePLC';
 import EditPLC from '../screens/Admin/PLC/EditPLC';
@@ -26,7 +27,9 @@ import PLCDetails from '../screens/Admin/PLC/PLCDetails';
 import PLCTags from '../screens/Admin/PLC/PLCTags';
 import CreatePLCTag from '../screens/Admin/PLC/CreatePLCTag';
 import EditPLCTag from '../screens/Admin/PLC/EditPLCTag';
-// WritePLCTag foi removido
+import WritePLCTag from '../screens/Admin/PLC/WritePLCTag';
+import PLCTagMonitor from '../screens/Admin/PLC/PLCTagMonitor';
+import PLCDiagnostic from '../screens/Admin/PLC/PLCDiagnostic';
 
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -135,7 +138,6 @@ function AdminStack() {
   );
 }
 
-// Create a new stack navigator for PLC screens
 function PLCStack() {
   const { theme } = useTheme();
   
@@ -155,6 +157,11 @@ function PLCStack() {
   
   return (
     <Stack.Navigator screenOptions={screenOptions}>
+      <Stack.Screen 
+        name="PLCDashboard" 
+        component={PLCDashboard} 
+        options={{ title: 'Dashboard' }}
+      />
       <Stack.Screen 
         name="PLCList" 
         component={PLCList} 
@@ -198,7 +205,21 @@ function PLCStack() {
         component={EditPLCTag} 
         options={{ title: 'Editar Tag' }}
       />
-      {/* A tela WritePLCTag foi removida */}
+      <Stack.Screen 
+        name="WritePLCTag" 
+        component={WritePLCTag} 
+        options={{ title: 'Escrever Valor' }}
+      />
+      <Stack.Screen 
+        name="PLCTagMonitor" 
+        component={PLCTagMonitor} 
+        options={{ title: 'Monitor de Tags' }}
+      />
+      <Stack.Screen 
+        name="PLCDiagnostic" 
+        component={PLCDiagnostic} 
+        options={{ title: 'Diagnóstico' }}
+      />
     </Stack.Navigator>
   );
 }

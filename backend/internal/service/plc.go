@@ -245,9 +245,13 @@ func (s *PLCService) GetPLCTags(plcID int) ([]domain.PLCTag, error) {
 	if err == nil && len(tags) > 0 {
 		// Carregar valores atuais das tags
 		for i := range tags {
+			// CORREÇÃO: Verificar valor retornado para não usar false como padrão
 			tagValue, err := s.cache.GetTagValue(plcID, tags[i].ID)
 			if err == nil && tagValue != nil {
 				tags[i].CurrentValue = tagValue.Value
+			} else {
+				// Deixar como nil para que o frontend possa tratar adequadamente
+				tags[i].CurrentValue = nil
 			}
 		}
 		return tags, nil
@@ -267,9 +271,13 @@ func (s *PLCService) GetPLCTags(plcID int) ([]domain.PLCTag, error) {
 		}
 
 		// Carregar valor atual, se disponível
+		// CORREÇÃO: Verificar valor retornado para não usar false como padrão
 		tagValue, err := s.cache.GetTagValue(plcID, tag.ID)
 		if err == nil && tagValue != nil {
 			tag.CurrentValue = tagValue.Value
+		} else {
+			// Deixar como nil para que o frontend possa tratar adequadamente
+			tag.CurrentValue = nil
 		}
 	}
 
@@ -281,10 +289,13 @@ func (s *PLCService) GetTagByID(id int) (domain.PLCTag, error) {
 	// Tentar buscar do Redis primeiro
 	tag, err := s.redisTagRepo.GetByID(id)
 	if err == nil {
-		// Carregar valor atual
+		// CORREÇÃO: Verificar valor retornado para não usar false como padrão
 		tagValue, err := s.cache.GetTagValue(tag.PLCID, tag.ID)
 		if err == nil && tagValue != nil {
 			tag.CurrentValue = tagValue.Value
+		} else {
+			// Deixar como nil para que o frontend possa tratar adequadamente
+			tag.CurrentValue = nil
 		}
 		return tag, nil
 	}
@@ -301,10 +312,13 @@ func (s *PLCService) GetTagByID(id int) (domain.PLCTag, error) {
 		log.Printf("Aviso: erro ao armazenar tag %d no Redis: %v", id, err)
 	}
 
-	// Carregar valor atual
+	// CORREÇÃO: Verificar valor retornado para não usar false como padrão
 	tagValue, err := s.cache.GetTagValue(tag.PLCID, tag.ID)
 	if err == nil && tagValue != nil {
 		tag.CurrentValue = tagValue.Value
+	} else {
+		// Deixar como nil para que o frontend possa tratar adequadamente
+		tag.CurrentValue = nil
 	}
 
 	return tag, nil
@@ -317,9 +331,13 @@ func (s *PLCService) GetTagByName(name string) ([]domain.PLCTag, error) {
 	if err == nil && len(tags) > 0 {
 		// Carregar valores atuais
 		for i := range tags {
+			// CORREÇÃO: Verificar valor retornado para não usar false como padrão
 			tagValue, err := s.cache.GetTagValue(tags[i].PLCID, tags[i].ID)
 			if err == nil && tagValue != nil {
 				tags[i].CurrentValue = tagValue.Value
+			} else {
+				// Deixar como nil para que o frontend possa tratar adequadamente
+				tags[i].CurrentValue = nil
 			}
 		}
 		return tags, nil
@@ -339,9 +357,13 @@ func (s *PLCService) GetTagByName(name string) ([]domain.PLCTag, error) {
 		}
 
 		// Carregar valor atual
+		// CORREÇÃO: Verificar valor retornado para não usar false como padrão
 		tagValue, err := s.cache.GetTagValue(tag.PLCID, tag.ID)
 		if err == nil && tagValue != nil {
 			tag.CurrentValue = tagValue.Value
+		} else {
+			// Deixar como nil para que o frontend possa tratar adequadamente
+			tag.CurrentValue = nil
 		}
 	}
 
