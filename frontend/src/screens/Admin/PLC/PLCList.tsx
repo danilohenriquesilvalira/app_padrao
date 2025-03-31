@@ -10,13 +10,13 @@ import {
   ActivityIndicator,
   Switch,
   Animated,
-  RefreshControl
+  RefreshControl,
+  TextInput
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../../contexts/ThemeContext';
-import Button from '../../../components/Button';
 import plcApi, { PLC } from '../../../services/plcApi';
 import EmptyListSvg from '../../../components/EmptyListSvg';
 
@@ -24,10 +24,12 @@ const PLCList = () => {
   const { theme, isDarkMode } = useTheme();
   const navigation = useNavigation();
   const [plcs, setPlcs] = useState<PLC[]>([]);
+  const [filteredPlcs, setFilteredPlcs] = useState<PLC[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [deleteConfirmModal, setDeleteConfirmModal] = useState(false);
   const [selectedPLC, setSelectedPLC] = useState<PLC | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Animation
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -50,11 +52,25 @@ const PLCList = () => {
     loadPLCs();
   }, []);
 
+  // Filtrar PLCs quando a busca mudar
+  useEffect(() => {
+    if (searchQuery.trim() === '') {
+      setFilteredPlcs(plcs);
+    } else {
+      const filtered = plcs.filter(plc => 
+        plc.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        plc.ip_address.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+      setFilteredPlcs(filtered);
+    }
+  }, [searchQuery, plcs]);
+
   const loadPLCs = async () => {
     try {
       setLoading(true);
       const data = await plcApi.getAllPLCs();
       setPlcs(data);
+      setFilteredPlcs(data);
     } catch (error) {
       console.error('Erro ao carregar PLCs:', error);
       Alert.alert('Erro', 'Não foi possível carregar a lista de PLCs');
@@ -83,7 +99,11 @@ const PLCList = () => {
             try {
               setLoading(true);
               await plcApi.deletePLC(plc.id);
-              setPlcs(plcs.filter(p => p.id !== plc.id));
+              const updatedPlcs = plcs.filter(p => p.id !== plc.id);
+              setPlcs(updatedPlcs);
+              setFilteredPlcs(updatedPlcs.filter(p => 
+                searchQuery ? p.name.toLowerCase().includes(searchQuery.toLowerCase()) : true
+              ));
               Alert.alert('Sucesso', 'PLC excluído com sucesso!');
             } catch (error) {
               console.error('Erro ao excluir PLC:', error);
@@ -105,11 +125,16 @@ const PLCList = () => {
         is_active: !plc.is_active 
       };
       
-      setPlcs(plcs.map(p => p.id === plc.id ? updatedPLC : p));
+      const updatedPlcs = plcs.map(p => p.id === plc.id ? updatedPLC : p);
+      setPlcs(updatedPlcs);
+      setFilteredPlcs(updatedPlcs.filter(p => 
+        searchQuery ? p.name.toLowerCase().includes(searchQuery.toLowerCase()) : true
+      ));
       await plcApi.updatePLC(updatedPLC);
     } catch (error) {
       // Reverter alteração em caso de erro
       setPlcs(plcs.map(p => p.id === plc.id ? plc : p));
+      setFilteredPlcs(filteredPlcs.map(p => p.id === plc.id ? plc : p));
       Alert.alert('Erro', 'Não foi possível alterar o status do PLC');
     }
   };
@@ -226,12 +251,6 @@ const PLCList = () => {
       <Text style={[styles.emptyDescription, { color: theme.textSecondary }]}>
         Cadastre seu primeiro PLC para começar a monitorá-lo.
       </Text>
-      <Button
-        title="Adicionar PLC"
-        onPress={() => (navigation as any).navigate('CreatePLC')}
-        icon={<Feather name="plus" size={18} color="#fff" />}
-        style={{ marginTop: 16 }}
-      />
     </View>
   );
 
@@ -248,42 +267,51 @@ const PLCList = () => {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
+      {/* Buscador de PLCs */}
       <Animated.View 
         style={[
-          styles.header,
+          styles.searchContainer,
           { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }
         ]}
       >
-        <View style={styles.titleContainer}>
-          <View style={styles.titleIconContainer}>
-            <Feather name="cpu" size={24} color={theme.primary} />
-          </View>
-          <View>
-            <Text style={[styles.title, { color: theme.text }]}>
-              Controladores Lógicos Programáveis
-            </Text>
-            <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-              Gerencie seus PLCs e monitore suas variáveis
-            </Text>
-          </View>
+        <View style={[
+          styles.searchBar, 
+          { 
+            backgroundColor: isDarkMode ? theme.surface : '#fff',
+            borderColor: isDarkMode ? theme.border : '#e0e0e0'
+          }
+        ]}>
+          <Feather 
+            name="search" 
+            size={20} 
+            color={theme.textSecondary} 
+            style={styles.searchIcon} 
+          />
+          <TextInput
+            style={[styles.searchInput, { color: theme.text }]}
+            placeholder="Buscar PLCs por nome ou IP..."
+            placeholderTextColor={theme.textSecondary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity
+              onPress={() => setSearchQuery('')}
+              style={styles.clearButton}
+            >
+              <Feather name="x" size={18} color={theme.textSecondary} />
+            </TouchableOpacity>
+          )}
         </View>
-        
-        <Button
-          title="Novo PLC"
-          onPress={() => (navigation as any).navigate('CreatePLC')}
-          icon={<Feather name="plus" size={18} color="#fff" />}
-          style={styles.addButton}
-          full
-        />
       </Animated.View>
       
       <FlatList
-        data={plcs}
+        data={filteredPlcs}
         renderItem={renderItem}
         keyExtractor={(item) => item.id.toString()}
         contentContainerStyle={[
           styles.listContent,
-          plcs.length === 0 && styles.emptyListContent
+          filteredPlcs.length === 0 && styles.emptyListContent
         ]}
         ListEmptyComponent={renderEmptyComponent}
         refreshControl={
@@ -312,34 +340,33 @@ const styles = StyleSheet.create({
     marginTop: 16,
     fontSize: 16,
   },
-  header: {
+  searchContainer: {
     padding: 16,
-    paddingTop: 20,
+    paddingBottom: 8,
   },
-  titleContainer: {
+  searchBar: {
+    height: 46,
+    borderRadius: 23,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  titleIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(79, 91, 213, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
+  searchIcon: {
+    marginHorizontal: 12,
   },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
+  searchInput: {
+    flex: 1,
+    height: '100%',
+    fontSize: 15,
   },
-  subtitle: {
-    fontSize: 14,
-    marginTop: 4,
-  },
-  addButton: {
-    marginTop: 8,
+  clearButton: {
+    padding: 8,
+    marginRight: 8,
   },
   listContent: {
     padding: 16,

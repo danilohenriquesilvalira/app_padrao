@@ -385,35 +385,27 @@ export default function UserList({ navigation }: any) {
             </View>
           </View>
           
-          {/* Botões de Ação */}
+          {/* Botões de Ação - Agora com fundo azul claro */}
           <View style={styles.actionsContainer}>
             <TouchableOpacity 
               onPress={() => navigation.navigate('EditUser', { userId: item.id })}
               style={styles.actionButton}
+              activeOpacity={0.8}
             >
-              <LinearGradient
-                colors={['#00C9FF', '#0077FF'] as readonly [string, string]}
-                start={{x: 0, y: 0}}
-                end={{x: 1, y: 0}}
-                style={styles.actionGradient}
-              >
-                <Feather name="edit-2" size={14} color="#fff" />
-              </LinearGradient>
+              <View style={styles.actionButtonLight}>
+                <Feather name="edit-2" size={14} color="#00C9FF" />
+              </View>
             </TouchableOpacity>
             
             <TouchableOpacity 
               onPress={() => handleDeleteConfirm(item)}
               style={styles.actionButton}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              activeOpacity={0.8}
             >
-              <LinearGradient
-                colors={['#FF5E57', '#FF3131'] as readonly [string, string]}
-                start={{x: 0, y: 0}}
-                end={{x: 1, y: 0}}
-                style={styles.actionGradient}
-              >
-                <Feather name="trash-2" size={14} color="#fff" />
-              </LinearGradient>
+              <View style={styles.actionButtonLight}>
+                <Feather name="trash-2" size={14} color="#FF3131" />
+              </View>
             </TouchableOpacity>
           </View>
         </View>
@@ -423,8 +415,6 @@ export default function UserList({ navigation }: any) {
 
   const renderHeader = () => (
     <View style={styles.header}>
-      {/* Removido o título "Gerenciar Usuários" e o subtítulo */}
-      
       <View style={styles.searchContainer}>
         <Animated.View style={[
           styles.searchBar, 
@@ -455,7 +445,7 @@ export default function UserList({ navigation }: any) {
           )}
         </Animated.View>
         
-        {isSearchFocused && (
+        {isSearchFocused ? (
           <TouchableOpacity 
             style={styles.cancelSearch}
             onPress={() => {
@@ -465,55 +455,48 @@ export default function UserList({ navigation }: any) {
           >
             <Text style={{ color: theme.primary }}>Cancelar</Text>
           </TouchableOpacity>
+        ) : (
+          <TouchableOpacity 
+            style={styles.addUserButton}
+            onPress={() => navigation.navigate('CreateUser')}
+            activeOpacity={0.7}
+          >
+            <View style={styles.addUserIconContainer}>
+              <Feather name="user-plus" size={20} color={theme.primary} />
+            </View>
+          </TouchableOpacity>
         )}
       </View>
       
-      <Button 
-        title="Novo Usuário" 
-        onPress={() => navigation.navigate('CreateUser')}
-        icon={<Feather name="user-plus" size={16} color="#fff" style={{ marginRight: 8 }} />}
-        full={true}
-        style={styles.newUserButton}
-      />
-      
-      {/* Cards de estatísticas aprimorados */}
+      {/* Cards de estatísticas com fundo azul suave */}
       <View style={styles.statsContainer}>
-        <LinearGradient
-          colors={['#4F5BD5', '#962FBF'] as readonly [string, string]}
-          start={{x: 0, y: 0}}
-          end={{x: 1, y: 0}}
-          style={styles.statCard}
-        >
-          <Feather name="users" size={20} color="#FFFFFF" />
-          <Text style={styles.statValue}>{total}</Text>
-          <Text style={styles.statLabel}>Total</Text>
-        </LinearGradient>
+        <View style={[styles.statCard, styles.statCardLight]}>
+          <View style={styles.statIconContainer}>
+            <Feather name="users" size={20} color="#4F5BD5" />
+          </View>
+          <Text style={[styles.statValue, styles.statValueDark]}>{total}</Text>
+          <Text style={[styles.statLabel, styles.statLabelDark]}>Total</Text>
+        </View>
         
-        <LinearGradient
-          colors={['#00C06B', '#0AC18E'] as readonly [string, string]}
-          start={{x: 0, y: 0}}
-          end={{x: 1, y: 0}}
-          style={styles.statCard}
-        >
-          <Feather name="user-check" size={20} color="#FFFFFF" />
-          <Text style={styles.statValue}>
+        <View style={[styles.statCard, styles.statCardLight]}>
+          <View style={styles.statIconContainer}>
+            <Feather name="user-check" size={20} color="#00C06B" />
+          </View>
+          <Text style={[styles.statValue, styles.statValueDark]}>
             {users.filter(u => u.isActive).length}
           </Text>
-          <Text style={styles.statLabel}>Ativos</Text>
-        </LinearGradient>
+          <Text style={[styles.statLabel, styles.statLabelDark]}>Ativos</Text>
+        </View>
         
-        <LinearGradient
-          colors={['#E1306C', '#C13584'] as readonly [string, string]}
-          start={{x: 0, y: 0}}
-          end={{x: 1, y: 0}}
-          style={styles.statCard}
-        >
-          <Feather name="shield" size={20} color="#FFFFFF" />
-          <Text style={styles.statValue}>
+        <View style={[styles.statCard, styles.statCardLight]}>
+          <View style={styles.statIconContainer}>
+            <Feather name="shield" size={20} color="#E1306C" />
+          </View>
+          <Text style={[styles.statValue, styles.statValueDark]}>
             {users.filter(u => u.role === 'admin').length}
           </Text>
-          <Text style={styles.statLabel}>Admins</Text>
-        </LinearGradient>
+          <Text style={[styles.statLabel, styles.statLabelDark]}>Admins</Text>
+        </View>
       </View>
       
       {/* Cabeçalho da lista de resultados */}
@@ -562,7 +545,7 @@ export default function UserList({ navigation }: any) {
         <Text style={styles.emptyDescription}>
           {searchQuery
             ? `Não encontramos nenhum usuário para "${searchQuery}"`
-            : 'Comece adicionando um novo usuário através do botão acima'
+            : 'Comece adicionando um novo usuário pelo botão de adicionar no topo da tela'
           }
         </Text>
         
@@ -600,6 +583,7 @@ export default function UserList({ navigation }: any) {
         onEndReachedThreshold={0.2}
         refreshing={refreshing}
         onRefresh={handleRefresh}
+        showsVerticalScrollIndicator={false}
       />
       
       {loading && !refreshing && (
@@ -685,7 +669,6 @@ const styles = StyleSheet.create({
   header: {
     marginBottom: 16,
   },
-  // Removidos estilos de titleContainer, title e subtitle
   userItemContainer: {
     marginBottom: 12,
   },
@@ -823,6 +806,23 @@ const styles = StyleSheet.create({
     height: 32,
     marginLeft: 8,
   },
+  // Novo estilo para botões com fundo azul claro
+  actionButtonLight: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f0f7ff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 1,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  // Estilos antigos mantidos para referência
   actionGradient: {
     width: '100%',
     height: '100%',
@@ -873,8 +873,25 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     padding: 8,
   },
-  newUserButton: {
-    marginBottom: 20,
+  // Novo botão de adicionar usuário
+  addUserButton: {
+    marginLeft: 8,
+    padding: 2,
+  },
+  addUserIconContainer: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#f0f7ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 1,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
   },
   statsContainer: {
     flexDirection: 'row',
@@ -893,19 +910,43 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 5,
     elevation: 3,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  // Novos estilos para os cards com fundo azul suave
+  statCardLight: {
+    backgroundColor: '#f0f7ff',
+  },
+  statIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 1,
   },
   statValue: {
     fontSize: 22,
     fontWeight: '700',
     marginTop: 8,
-    color: '#FFFFFF',
+  },
+  statValueDark: {
+    color: '#262626',
   },
   statLabel: {
     fontSize: 12,
     marginTop: 2,
     fontWeight: '500',
-    color: 'rgba(255,255,255,0.9)',
     textTransform: 'uppercase',
+  },
+  statLabelDark: {
+    color: '#737373',
   },
   resultsHeader: {
     marginBottom: 12,
