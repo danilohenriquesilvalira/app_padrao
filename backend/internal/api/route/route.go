@@ -5,16 +5,24 @@ import (
 	"app_padrao/internal/api/handler"
 	"app_padrao/internal/api/middleware"
 	"app_padrao/internal/domain"
+	"app_padrao/internal/health"
+	"app_padrao/internal/metrics"
+	"app_padrao/pkg/resilience"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"time"
 
-	// Remover importação que causa erro
-	// "github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
+
+// Application contém componentes globais do sistema
+type Application struct {
+	MetricsCollector *metrics.MetricsCollector
+	HealthChecker    *health.HealthCheck
+	RateLimiter      *resilience.RateLimiter // Campo adicionado para o rate limiter
+}
 
 // SetupRoutes configura as rotas da API
 func SetupRoutes(
@@ -27,6 +35,7 @@ func SetupRoutes(
 	plcHandler *handler.PLCHandler,
 	userRepo domain.UserRepository,
 	jwtSecret string,
+	app *Application,
 ) {
 	// CORS - Configuração melhorada
 	router.Use(corsMiddleware())
@@ -41,7 +50,7 @@ func SetupRoutes(
 	router.Use(requestLogger())
 
 	// Rotas para verificação de saúde da API
-	setupHealthRoutes(router)
+	setupHealthRoutes(router, app)
 
 	// Autenticação
 	setupAuthRoutes(router, authHandler)
@@ -109,7 +118,7 @@ func getAvatarDirectory() string {
 }
 
 // setupHealthRoutes configura as rotas de saúde da API
-func setupHealthRoutes(router *gin.Engine) {
+func setupHealthRoutes(router *gin.Engine, app *Application) {
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"status":    "ok",
@@ -121,6 +130,32 @@ func setupHealthRoutes(router *gin.Engine) {
 	// Rota de verificação de tempo de atividade
 	router.GET("/uptime", func(c *gin.Context) {
 		c.String(200, fmt.Sprintf("Servidor iniciado em: %s", time.Now().Format(time.RFC3339)))
+	})
+
+	// Rota de verificação detalhada de saúde
+	router.GET("/health/detailed", func(c *gin.Context) {
+		// Verificar se a aplicação e o health checker estão disponíveis
+		if app == nil || app.HealthChecker == nil {
+			c.JSON(500, gin.H{"error": "Health checker not available"})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"status":     app.HealthChecker.GetOverallStatus(),
+			"components": app.HealthChecker.GetHealth(),
+			"timestamp":  time.Now().Format(time.RFC3339),
+		})
+	})
+
+	// Rota para métricas do sistema
+	router.GET("/metrics", func(c *gin.Context) {
+		// Verificar se a aplicação e o metrics collector estão disponíveis
+		if app == nil || app.MetricsCollector == nil {
+			c.JSON(500, gin.H{"error": "Metrics collector not available"})
+			return
+		}
+
+		c.JSON(200, app.MetricsCollector.GetAllMetrics())
 	})
 }
 

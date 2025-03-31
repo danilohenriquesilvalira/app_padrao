@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// Server struct com campo app para componentes globais
 type Server struct {
 	router            *gin.Engine
 	httpServer        *http.Server
@@ -25,6 +26,7 @@ type Server struct {
 	plcHandler        *handler.PLCHandler // NOVO: handler do PLC
 	userRepo          domain.UserRepository
 	cfg               *config.Config
+	app               *route.Application // Campo para Application
 }
 
 func NewServer(
@@ -36,6 +38,7 @@ func NewServer(
 	profileHandler *handler.ProfileHandler,
 	plcHandler *handler.PLCHandler, // NOVO: handler do PLC
 	userRepo domain.UserRepository,
+	app *route.Application, // Novo parâmetro para Application
 ) *Server {
 	router := gin.Default()
 
@@ -49,10 +52,12 @@ func NewServer(
 		plcHandler:        plcHandler, // NOVO: handler do PLC
 		userRepo:          userRepo,
 		cfg:               cfg,
+		app:               app, // Inicializa o novo campo
 	}
 }
 
 func (s *Server) Run() error {
+	// Passar todos os parâmetros para SetupRoutes, incluindo o app
 	route.SetupRoutes(
 		s.router,
 		s.authHandler,
@@ -63,6 +68,7 @@ func (s *Server) Run() error {
 		s.plcHandler, // NOVO: handler do PLC
 		s.userRepo,
 		s.cfg.JWT.SecretKey,
+		s.app, // Passar a instância de Application
 	)
 
 	s.httpServer = &http.Server{

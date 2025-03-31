@@ -3,11 +3,15 @@ package main
 import (
 	"app_padrao/internal/api"
 	"app_padrao/internal/api/handler"
+	"app_padrao/internal/api/route"
 	"app_padrao/internal/cache"
 	"app_padrao/internal/config"
+	"app_padrao/internal/health"
+	"app_padrao/internal/metrics"
 	"app_padrao/internal/repository"
 	"app_padrao/internal/service"
 	"app_padrao/pkg/database"
+	"app_padrao/pkg/resilience"
 	"context"
 	"fmt"
 	"log"
@@ -63,6 +67,48 @@ func main() {
 		log.Println("Verificação de saúde do Redis concluída com sucesso")
 	}
 
+	// Inicializar componentes de observabilidade e resiliência
+	metricsCollector := metrics.NewMetricsCollector()
+	healthChecker := health.NewHealthCheck()
+
+	// Verificar saúde inicial dos componentes
+	healthChecker.CheckPostgres(db)
+	healthChecker.CheckRedis(redisCache.GetRedisClient())
+
+	// Configurar rate limiter para operações de PLC (limita 100 operações por segundo por PLC)
+	rateLimiter := resilience.NewRateLimiter(100, time.Second)
+
+	// Registrar componentes no contexto global da aplicação
+	app := &route.Application{
+		MetricsCollector: metricsCollector,
+		HealthChecker:    healthChecker,
+		RateLimiter:      rateLimiter, // Adicionar o rate limiter à aplicação
+	}
+
+	// Iniciar verificação periódica de saúde
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				healthChecker.CheckPostgres(db)
+				healthChecker.CheckRedis(redisCache.GetRedisClient())
+
+				// Registrar métricas de saúde
+				status := healthChecker.GetOverallStatus()
+				statusValue := 0.0
+				if status == health.StatusHealthy {
+					statusValue = 1.0
+				} else if status == health.StatusDegraded {
+					statusValue = 0.5
+				}
+				metricsCollector.SetGauge("system.health.status", statusValue)
+			}
+		}
+	}()
+
 	// Inicializar serviços
 	userService := service.NewUserService(userRepo, cfg.JWT.SecretKey, cfg.JWT.ExpirationHours)
 	roleService := service.NewRoleService(roleRepo)
@@ -92,18 +138,28 @@ func main() {
 		profileHandler,
 		plcHandler,
 		userRepo,
+		app, // Passar a referência para Application
 	)
 
 	// Iniciar monitoramento de PLCs
 	log.Println("Iniciando monitoramento de PLCs...")
 	if err := plcService.StartMonitoring(); err != nil {
 		log.Printf("Erro ao iniciar monitoramento de PLCs: %v", err)
+
+		// Registrar falha nas métricas
+		metricsCollector.IncrementCounter("plc.monitoring.start_failures", 1)
 	} else {
 		log.Println("Monitoramento de PLCs iniciado com sucesso")
+
+		// Registrar sucesso nas métricas
+		metricsCollector.IncrementCounter("plc.monitoring.starts", 1)
 
 		// Verificar se os endereços das tags correspondem aos do PLC
 		if err := plcService.VerifyTagAddresses(); err != nil {
 			log.Printf("Erro ao verificar endereços das tags: %v", err)
+			metricsCollector.IncrementCounter("plc.tag.address_verification_failures", 1)
+		} else {
+			metricsCollector.IncrementCounter("plc.tag.address_verifications", 1)
 		}
 
 		// Iniciar monitor de depuração para visualizar valores
@@ -121,6 +177,7 @@ func main() {
 	}()
 
 	log.Println("Servidor iniciado")
+	metricsCollector.IncrementCounter("server.starts", 1)
 
 	// Aguardar sinal para desligar
 	<-quit
@@ -130,8 +187,10 @@ func main() {
 	log.Println("Parando monitoramento de PLCs...")
 	if err := plcService.StopMonitoring(); err != nil {
 		log.Printf("Erro ao parar monitoramento de PLCs: %v", err)
+		metricsCollector.IncrementCounter("plc.monitoring.stop_failures", 1)
 	} else {
 		log.Println("Monitoramento de PLCs parado com sucesso")
+		metricsCollector.IncrementCounter("plc.monitoring.stops", 1)
 	}
 
 	// Dar 10 segundos para conexões existentes terminarem
@@ -143,4 +202,5 @@ func main() {
 	}
 
 	log.Println("Servidor encerrado com sucesso")
+	metricsCollector.IncrementCounter("server.graceful_shutdowns", 1)
 }
