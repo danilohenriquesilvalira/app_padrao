@@ -1,7 +1,9 @@
+// pkg/plc/cliente.go
 package plc
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -11,6 +13,14 @@ import (
 	"time"
 
 	"github.com/robinson/gos7"
+)
+
+// Erros específicos para melhorar o tratamento de erros
+var (
+	ErrConnectionClosed = errors.New("conexão com PLC não inicializada")
+	ErrNetworkFailure   = errors.New("falha na conexão de rede com o PLC")
+	ErrInvalidDataType  = errors.New("tipo de dados inválido ou não suportado")
+	ErrValueConversion  = errors.New("valor não pode ser convertido para o tipo especificado")
 )
 
 // Client encapsula a conexão com o PLC e adiciona funcionalidade de reconexão
@@ -86,11 +96,29 @@ func (c *Client) connect() error {
 	handler := gos7.NewTCPClientHandler(c.config.IPAddress, c.config.Rack, c.config.Slot)
 	handler.Timeout = c.config.Timeout
 
-	// Tentar estabelecer conexão
-	if err := handler.Connect(); err != nil {
+	// Tentar estabelecer conexão com retry
+	var err error
+	maxRetries := 3
+	backoffTime := 100 * time.Millisecond
+
+	for i := 0; i < maxRetries; i++ {
+		err = handler.Connect()
+		if err == nil {
+			break
+		}
+
+		log.Printf("Falha na tentativa %d de conectar ao PLC %s: %v. Tentando novamente em %v...",
+			i+1, c.config.IPAddress, err, backoffTime)
+
+		// Esperar antes de tentar novamente (backoff exponencial)
+		time.Sleep(backoffTime)
+		backoffTime *= 2
+	}
+
+	if err != nil {
 		c.lastConnErr = err
 		c.isConnected = false
-		return fmt.Errorf("falha ao conectar ao PLC: %w", err)
+		return fmt.Errorf("falha ao conectar ao PLC após %d tentativas: %w", maxRetries, err)
 	}
 
 	// Atualiza o estado da conexão
@@ -104,6 +132,8 @@ func (c *Client) connect() error {
 	c.gateway = c.config.Gateway
 	c.useVLAN = c.config.UseVLAN
 
+	log.Printf("Conectado com sucesso ao PLC %s (Rack: %d, Slot: %d)",
+		c.config.IPAddress, c.config.Rack, c.config.Slot)
 	return nil
 }
 
@@ -115,13 +145,19 @@ func (c *Client) Reconnect() error {
 
 // ensureConnected garante que a conexão esteja ativa antes de qualquer operação
 func (c *Client) ensureConnected() error {
-	// Primeiro uma verificação simples sem lock
-	if c.isConnected && c.handler != nil && c.client != nil {
-		return nil
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Verificação segura do estado de conexão
+	if !c.isConnected || c.handler == nil || c.client == nil {
+		// Se a conexão não está OK, tenta reconectar
+		c.mu.Unlock()
+		err := c.Reconnect()
+		c.mu.Lock()
+		return err
 	}
 
-	// Se a conexão não está OK, tenta reconectar
-	return c.Reconnect()
+	return nil
 }
 
 // Close fecha a conexão com o PLC
@@ -144,7 +180,7 @@ func (c *Client) Ping() error {
 
 	// Se não temos um handler, a conexão já está inativa
 	if c.handler == nil {
-		return fmt.Errorf("conexão não inicializada")
+		return ErrConnectionClosed
 	}
 
 	// Teste 1: Verificar se o socket TCP ainda está vivo
@@ -156,7 +192,7 @@ func (c *Client) Ping() error {
 	conn, err := net.DialTimeout("tcp", address, 3*time.Second)
 	if err != nil {
 		c.isConnected = false
-		return fmt.Errorf("falha no ping TCP: %w", err)
+		return fmt.Errorf("%w: %v", ErrNetworkFailure, err)
 	}
 	conn.Close()
 
@@ -177,6 +213,40 @@ func (c *Client) GetConfig() ClientConfig {
 	return c.config
 }
 
+// isNetworkError verifica se um erro é relacionado a rede
+func isNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Verificar primeiro se é um erro de rede específico do pacote net
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+
+	// Verificar casos específicos por mensagem
+	errStr := err.Error()
+	networkErrors := []string{
+		"connection reset",
+		"broken pipe",
+		"EOF",
+		"forcibly closed",
+		"i/o timeout",
+		"uso de um arquivo fechado",
+		"foi forçado o cancelamento",
+		"wsasend",
+	}
+
+	for _, errText := range networkErrors {
+		if strings.Contains(strings.ToLower(errStr), errText) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // ReadTag lê um valor do PLC usando DBNumber, ByteOffset, dataType e BitOffset opcional (para bool)
 func (c *Client) ReadTag(dbNumber int, byteOffset int, dataType string, bitOffset int) (interface{}, error) {
 	// Garante que a conexão está ativa antes de qualquer operação
@@ -192,25 +262,28 @@ func (c *Client) ReadTag(dbNumber int, byteOffset int, dataType string, bitOffse
 	// Validação explícita do tipo de dados para evitar interpretação incorreta
 	dataType = strings.ToLower(strings.TrimSpace(dataType))
 
-	// Log detalhado da requisição para facilitar depuração
-	log.Printf("ReadTag - Lendo tag: DB%d.DBX%d [Tipo: %s, BitOffset: %d]",
-		dbNumber, byteOffset, dataType, bitOffset)
+	// Mapear tipos válidos e seus tamanhos
+	validTypes := map[string]int{
+		"real":   4,
+		"dint":   4,
+		"int32":  4,
+		"dword":  4,
+		"uint32": 4,
+		"int":    2,
+		"int16":  2,
+		"word":   2,
+		"uint16": 2,
+		"sint":   1,
+		"int8":   1,
+		"usint":  1,
+		"byte":   1,
+		"uint8":  1,
+		"bool":   1,
+		"string": 256,
+	}
 
-	// Determinar o tamanho baseado no tipo de dado com validação mais rigorosa
-	switch dataType {
-	case "real":
-		size = 4
-	case "dint", "int32", "dword", "uint32":
-		size = 4
-	case "int", "int16", "word", "uint16":
-		size = 2
-	case "sint", "int8", "usint", "byte", "uint8":
-		size = 1
-	case "bool":
-		size = 1
-	case "string":
-		size = 256
-	default:
+	size, validType := validTypes[dataType]
+	if !validType {
 		// Se o tipo não for reconhecido, tente inferir um tipo adequado
 		log.Printf("AVISO: Tipo de dado não reconhecido: '%s'. Tentando inferir tipo adequado.", dataType)
 		if bitOffset > 0 {
@@ -223,7 +296,7 @@ func (c *Client) ReadTag(dbNumber int, byteOffset int, dataType string, bitOffse
 		}
 	}
 
-	// Ler os bytes do PLC - AQUI É O PONTO CRÍTICO: leitura real do PLC
+	// Ler os bytes do PLC
 	buf := make([]byte, size)
 	err := c.client.AGReadDB(dbNumber, byteOffset, size, buf)
 
@@ -231,7 +304,7 @@ func (c *Client) ReadTag(dbNumber int, byteOffset int, dataType string, bitOffse
 	if err != nil {
 		if isNetworkError(err) {
 			c.isConnected = false
-			return nil, fmt.Errorf("erro ao ler dados do PLC (DB%d.%d): %w", dbNumber, byteOffset, err)
+			return nil, fmt.Errorf("%w: DB%d.%d: %v", ErrNetworkFailure, dbNumber, byteOffset, err)
 		}
 		return nil, fmt.Errorf("erro ao ler dados do PLC (DB%d.%d): %w", dbNumber, byteOffset, err)
 	}
@@ -271,16 +344,26 @@ func (c *Client) ReadTag(dbNumber int, byteOffset int, dataType string, bitOffse
 		}
 
 	case "string":
+		// Verificar se o buffer tem pelo menos os 2 bytes de cabeçalho
+		if len(buf) < 2 {
+			return "", fmt.Errorf("buffer de string muito pequeno")
+		}
+
 		strLen := int(buf[1])
 		if strLen > 254 {
 			strLen = 254
 		}
+
+		// Garantir que não tentamos acessar além do tamanho do buffer
+		if 2+strLen > len(buf) {
+			strLen = len(buf) - 2
+			if strLen < 0 {
+				strLen = 0
+			}
+		}
+
 		resultado = string(buf[2 : 2+strLen])
 	}
-
-	// Log detalhado do resultado
-	log.Printf("ReadTag - Lido com sucesso DB%d.DBX%d [Tipo: %s]: %v",
-		dbNumber, byteOffset, dataType, resultado)
 
 	return resultado, nil
 }
@@ -297,10 +380,6 @@ func (c *Client) WriteTag(dbNumber int, byteOffset int, dataType string, bitOffs
 
 	// Normalizar o tipo de dados
 	dataType = strings.ToLower(strings.TrimSpace(dataType))
-
-	// Log detalhado da operação de escrita
-	log.Printf("WriteTag - Escrevendo na tag: DB%d.DBX%d [Tipo: %s, BitOffset: %d] Valor: %v (%T)",
-		dbNumber, byteOffset, dataType, bitOffset, value, value)
 
 	var buf []byte
 
@@ -319,7 +398,7 @@ func (c *Client) WriteTag(dbNumber int, byteOffset int, dataType string, bitOffs
 		case int64:
 			val = float32(v)
 		default:
-			return fmt.Errorf("valor deve ser compatível com float32, recebido: %T", value)
+			return fmt.Errorf("%w: esperado float32, recebido %T", ErrValueConversion, value)
 		}
 
 		binary.BigEndian.PutUint32(buf, math.Float32bits(val))
@@ -340,7 +419,7 @@ func (c *Client) WriteTag(dbNumber int, byteOffset int, dataType string, bitOffs
 		case float64:
 			val = int32(v)
 		default:
-			return fmt.Errorf("valor deve ser compatível com int32, recebido: %T", value)
+			return fmt.Errorf("%w: esperado int32, recebido %T", ErrValueConversion, value)
 		}
 
 		binary.BigEndian.PutUint32(buf, uint32(val))
@@ -356,16 +435,16 @@ func (c *Client) WriteTag(dbNumber int, byteOffset int, dataType string, bitOffs
 			val = uint32(v)
 		case int:
 			if v < 0 {
-				return fmt.Errorf("valor negativo não pode ser convertido para uint32")
+				return fmt.Errorf("%w: valor negativo não pode ser convertido para uint32", ErrValueConversion)
 			}
 			val = uint32(v)
 		case float64:
 			if v < 0 {
-				return fmt.Errorf("valor negativo não pode ser convertido para uint32")
+				return fmt.Errorf("%w: valor negativo não pode ser convertido para uint32", ErrValueConversion)
 			}
 			val = uint32(v)
 		default:
-			return fmt.Errorf("valor deve ser compatível com uint32, recebido: %T", value)
+			return fmt.Errorf("%w: esperado uint32, recebido %T", ErrValueConversion, value)
 		}
 
 		binary.BigEndian.PutUint32(buf, val)
@@ -378,13 +457,23 @@ func (c *Client) WriteTag(dbNumber int, byteOffset int, dataType string, bitOffs
 		case int16:
 			val = v
 		case int:
+			// Verificar se está dentro dos limites de int16
+			if v > 32767 || v < -32768 {
+				return fmt.Errorf("%w: valor %d está fora dos limites de int16 (-32768 a 32767)", ErrValueConversion, v)
+			}
 			val = int16(v)
 		case float32:
+			if v > 32767 || v < -32768 {
+				return fmt.Errorf("%w: valor %f está fora dos limites de int16", ErrValueConversion, v)
+			}
 			val = int16(v)
 		case float64:
+			if v > 32767 || v < -32768 {
+				return fmt.Errorf("%w: valor %f está fora dos limites de int16", ErrValueConversion, v)
+			}
 			val = int16(v)
 		default:
-			return fmt.Errorf("valor deve ser compatível com int16, recebido: %T", value)
+			return fmt.Errorf("%w: esperado int16, recebido %T", ErrValueConversion, value)
 		}
 
 		binary.BigEndian.PutUint16(buf, uint16(val))
@@ -397,17 +486,17 @@ func (c *Client) WriteTag(dbNumber int, byteOffset int, dataType string, bitOffs
 		case uint16:
 			val = v
 		case int:
-			if v < 0 {
-				return fmt.Errorf("valor negativo não pode ser convertido para uint16")
+			if v < 0 || v > 65535 {
+				return fmt.Errorf("%w: valor %d está fora dos limites de uint16 (0 a 65535)", ErrValueConversion, v)
 			}
 			val = uint16(v)
 		case float64:
-			if v < 0 {
-				return fmt.Errorf("valor negativo não pode ser convertido para uint16")
+			if v < 0 || v > 65535 {
+				return fmt.Errorf("%w: valor %f está fora dos limites de uint16", ErrValueConversion, v)
 			}
 			val = uint16(v)
 		default:
-			return fmt.Errorf("valor deve ser compatível com uint16, recebido: %T", value)
+			return fmt.Errorf("%w: esperado uint16, recebido %T", ErrValueConversion, value)
 		}
 
 		binary.BigEndian.PutUint16(buf, val)
@@ -420,11 +509,17 @@ func (c *Client) WriteTag(dbNumber int, byteOffset int, dataType string, bitOffs
 		case int8:
 			val = v
 		case int:
+			if v > 127 || v < -128 {
+				return fmt.Errorf("%w: valor %d está fora dos limites de int8 (-128 a 127)", ErrValueConversion, v)
+			}
 			val = int8(v)
 		case float64:
+			if v > 127 || v < -128 {
+				return fmt.Errorf("%w: valor %f está fora dos limites de int8", ErrValueConversion, v)
+			}
 			val = int8(v)
 		default:
-			return fmt.Errorf("valor deve ser compatível com int8, recebido: %T", value)
+			return fmt.Errorf("%w: esperado int8, recebido %T", ErrValueConversion, value)
 		}
 
 		buf[0] = byte(val)
@@ -437,17 +532,17 @@ func (c *Client) WriteTag(dbNumber int, byteOffset int, dataType string, bitOffs
 		case uint8:
 			val = v
 		case int:
-			if v < 0 {
-				return fmt.Errorf("valor negativo não pode ser convertido para uint8")
+			if v < 0 || v > 255 {
+				return fmt.Errorf("%w: valor %d está fora dos limites de uint8 (0 a 255)", ErrValueConversion, v)
 			}
 			val = uint8(v)
 		case float64:
-			if v < 0 {
-				return fmt.Errorf("valor negativo não pode ser convertido para uint8")
+			if v < 0 || v > 255 {
+				return fmt.Errorf("%w: valor %f está fora dos limites de uint8", ErrValueConversion, v)
 			}
 			val = uint8(v)
 		default:
-			return fmt.Errorf("valor deve ser compatível com uint8, recebido: %T", value)
+			return fmt.Errorf("%w: esperado uint8, recebido %T", ErrValueConversion, value)
 		}
 
 		buf[0] = val
@@ -456,7 +551,8 @@ func (c *Client) WriteTag(dbNumber int, byteOffset int, dataType string, bitOffs
 		buf = make([]byte, 1)
 
 		// Primeiro ler o byte atual para preservar os outros bits
-		if err := c.client.AGReadDB(dbNumber, byteOffset, 1, buf); err != nil {
+		err := c.client.AGReadDB(dbNumber, byteOffset, 1, buf)
+		if err != nil {
 			return fmt.Errorf("erro ao ler byte atual para escrita de bit: %w", err)
 		}
 
@@ -472,7 +568,7 @@ func (c *Client) WriteTag(dbNumber int, byteOffset int, dataType string, bitOffs
 		case string:
 			val = v == "true" || v == "1" || v == "yes" || v == "sim"
 		default:
-			return fmt.Errorf("valor deve ser convertível para bool, recebido: %T", value)
+			return fmt.Errorf("%w: esperado valor convertível para bool, recebido %T", ErrValueConversion, value)
 		}
 
 		// Se temos uma posição de bit específica
@@ -512,37 +608,18 @@ func (c *Client) WriteTag(dbNumber int, byteOffset int, dataType string, bitOffs
 		copy(buf[2:], str)
 
 	default:
-		return fmt.Errorf("tipo de dado não suportado: %s", dataType)
+		return fmt.Errorf("%w: %s", ErrInvalidDataType, dataType)
 	}
 
-	// Escrever os bytes no PLC - AQUI É O PONTO CRÍTICO: escrita real no PLC
+	// Escrever os bytes no PLC
 	err := c.client.AGWriteDB(dbNumber, byteOffset, len(buf), buf)
 	if err != nil {
 		if isNetworkError(err) {
 			c.isConnected = false
+			return fmt.Errorf("%w: DB%d.%d: %v", ErrNetworkFailure, dbNumber, byteOffset, err)
 		}
 		return fmt.Errorf("erro ao escrever dados no PLC (DB%d.%d): %w", dbNumber, byteOffset, err)
 	}
 
-	log.Printf("WriteTag - Escrito com sucesso na tag DB%d.DBX%d [Tipo: %s]",
-		dbNumber, byteOffset, dataType)
-
 	return nil
-}
-
-// isNetworkError verifica se um erro é relacionado a rede
-func isNetworkError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	errStr := err.Error()
-	return strings.Contains(errStr, "connection reset") ||
-		strings.Contains(errStr, "broken pipe") ||
-		strings.Contains(errStr, "EOF") ||
-		strings.Contains(errStr, "forcibly closed") ||
-		strings.Contains(errStr, "i/o timeout") ||
-		strings.Contains(errStr, "uso de um arquivo fechado") ||
-		strings.Contains(errStr, "Foi forçado o cancelamento") ||
-		strings.Contains(errStr, "wsasend")
 }

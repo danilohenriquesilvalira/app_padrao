@@ -1,7 +1,10 @@
+// internal/api/handler/plc.go
 package handler
 
 import (
 	"app_padrao/internal/domain"
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -9,21 +12,56 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// PLCHandler gerencia requisições relacionadas a PLCs
 type PLCHandler struct {
 	plcService domain.PLCService
 }
 
+// NewPLCHandler cria um novo handler de PLC
 func NewPLCHandler(plcService domain.PLCService) *PLCHandler {
 	return &PLCHandler{
 		plcService: plcService,
 	}
 }
 
+// validarPLC valida os campos de um PLC
+func (h *PLCHandler) validarPLC(c *gin.Context, plc *domain.PLC) bool {
+	// Validar nome
+	if plc.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Nome do PLC é obrigatório"})
+		return false
+	}
+
+	// Validar endereço IP
+	if plc.IPAddress == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Endereço IP do PLC é obrigatório"})
+		return false
+	}
+
+	// Validar rack e slot
+	if plc.Rack < 0 || plc.Slot < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Valores de Rack e Slot devem ser não-negativos"})
+		return false
+	}
+
+	return true
+}
+
 // GetAllPLCs retorna a lista de todos os PLCs
 func (h *PLCHandler) GetAllPLCs(c *gin.Context) {
-	plcs, err := h.plcService.GetAll()
+	// Verificar se há filtro de ativos
+	activeOnly := c.Query("active")
+	var plcs []domain.PLC
+	var err error
+
+	if activeOnly == "true" {
+		plcs, err = h.plcService.GetActivePLCs()
+	} else {
+		plcs, err = h.plcService.GetAll()
+	}
+
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Erro ao buscar PLCs: %v", err)})
 		return
 	}
 
@@ -32,19 +70,41 @@ func (h *PLCHandler) GetAllPLCs(c *gin.Context) {
 
 // GetPLC retorna um PLC específico
 func (h *PLCHandler) GetPLC(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+	// Extrair e validar o ID
+	id, err := h.getIDFromParams(c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
 		return
 	}
 
+	// Buscar o PLC
 	plc, err := h.plcService.GetByID(id)
 	if err != nil {
 		statusCode := http.StatusInternalServerError
-		if err == domain.ErrPLCNotFound {
+
+		if errors.Is(err, domain.ErrPLCNotFound) {
 			statusCode = http.StatusNotFound
 		}
+
 		c.JSON(statusCode, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Opcionalmente buscar as tags do PLC
+	includeTags := c.Query("include_tags")
+	if includeTags == "true" {
+		tags, err := h.plcService.GetPLCTags(id)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"plc":        plc,
+				"tags_error": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"plc":  plc,
+			"tags": tags,
+		})
 		return
 	}
 
@@ -54,14 +114,22 @@ func (h *PLCHandler) GetPLC(c *gin.Context) {
 // CreatePLC cria um novo PLC
 func (h *PLCHandler) CreatePLC(c *gin.Context) {
 	var plc domain.PLC
+
+	// Fazer binding e validar dados
 	if err := c.ShouldBindJSON(&plc); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Erro ao processar dados: %v", err)})
 		return
 	}
 
+	// Validar campos
+	if !h.validarPLC(c, &plc) {
+		return
+	}
+
+	// Criar o PLC
 	id, err := h.plcService.Create(plc)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Erro ao criar PLC: %v", err)})
 		return
 	}
 
@@ -73,26 +141,49 @@ func (h *PLCHandler) CreatePLC(c *gin.Context) {
 
 // UpdatePLC atualiza um PLC existente
 func (h *PLCHandler) UpdatePLC(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+	// Extrair e validar o ID
+	id, err := h.getIDFromParams(c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
 		return
 	}
 
-	var plc domain.PLC
-	if err := c.ShouldBindJSON(&plc); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	plc.ID = id
-
-	if err := h.plcService.Update(plc); err != nil {
+	// Buscar o PLC existente para confirmar que existe
+	_, err = h.plcService.GetByID(id)
+	if err != nil {
 		statusCode := http.StatusInternalServerError
-		if err == domain.ErrPLCNotFound {
+
+		if errors.Is(err, domain.ErrPLCNotFound) {
 			statusCode = http.StatusNotFound
 		}
-		c.JSON(statusCode, gin.H{"error": err.Error()})
+
+		c.JSON(statusCode, gin.H{"error": fmt.Sprintf("Erro ao buscar PLC: %v", err)})
+		return
+	}
+
+	// Fazer binding dos dados de atualização
+	var plc domain.PLC
+	if err := c.ShouldBindJSON(&plc); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Erro ao processar dados: %v", err)})
+		return
+	}
+
+	// Validar campos
+	if !h.validarPLC(c, &plc) {
+		return
+	}
+
+	// Garantir que o ID é o correto
+	plc.ID = id
+
+	// Atualizar o PLC
+	if err := h.plcService.Update(plc); err != nil {
+		statusCode := http.StatusInternalServerError
+
+		if errors.Is(err, domain.ErrPLCNotFound) {
+			statusCode = http.StatusNotFound
+		}
+
+		c.JSON(statusCode, gin.H{"error": fmt.Sprintf("Erro ao atualizar PLC: %v", err)})
 		return
 	}
 
@@ -101,18 +192,21 @@ func (h *PLCHandler) UpdatePLC(c *gin.Context) {
 
 // DeletePLC exclui um PLC
 func (h *PLCHandler) DeletePLC(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+	// Extrair e validar o ID
+	id, err := h.getIDFromParams(c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
 		return
 	}
 
+	// Excluir o PLC
 	if err := h.plcService.Delete(id); err != nil {
 		statusCode := http.StatusInternalServerError
-		if err == domain.ErrPLCNotFound {
+
+		if errors.Is(err, domain.ErrPLCNotFound) {
 			statusCode = http.StatusNotFound
 		}
-		c.JSON(statusCode, gin.H{"error": err.Error()})
+
+		c.JSON(statusCode, gin.H{"error": fmt.Sprintf("Erro ao excluir PLC: %v", err)})
 		return
 	}
 
@@ -121,15 +215,29 @@ func (h *PLCHandler) DeletePLC(c *gin.Context) {
 
 // GetPLCTags retorna todas as tags de um PLC
 func (h *PLCHandler) GetPLCTags(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+	// Extrair e validar o ID
+	id, err := h.getIDFromParams(c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
 		return
 	}
 
+	// Buscar as tags
 	tags, err := h.plcService.GetPLCTags(id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Erro ao buscar tags: %v", err)})
+		return
+	}
+
+	// Filtrar por tag ativa se solicitado
+	activeOnly := c.Query("active")
+	if activeOnly == "true" {
+		activeTags := make([]domain.PLCTag, 0)
+		for _, tag := range tags {
+			if tag.Active {
+				activeTags = append(activeTags, tag)
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{"tags": activeTags})
 		return
 	}
 
@@ -138,55 +246,86 @@ func (h *PLCHandler) GetPLCTags(c *gin.Context) {
 
 // GetTagByID retorna uma tag específica
 func (h *PLCHandler) GetTagByID(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+	// Extrair e validar o ID
+	id, err := h.getIDFromParams(c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
 		return
 	}
 
+	// Buscar a tag
 	tag, err := h.plcService.GetTagByID(id)
 	if err != nil {
 		statusCode := http.StatusInternalServerError
-		if err == domain.ErrPLCTagNotFound {
+
+		if errors.Is(err, domain.ErrPLCTagNotFound) {
 			statusCode = http.StatusNotFound
 		}
-		c.JSON(statusCode, gin.H{"error": err.Error()})
+
+		c.JSON(statusCode, gin.H{"error": fmt.Sprintf("Erro ao buscar tag: %v", err)})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"tag": tag})
 }
 
-// CreatePLCTag cria uma nova tag para um PLC
-func (h *PLCHandler) CreatePLCTag(c *gin.Context) {
-	plcID, err := strconv.Atoi(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID do PLC inválido"})
-		return
+// validarTag valida os campos de uma tag
+func (h *PLCHandler) validarTag(c *gin.Context, tag *domain.PLCTag) bool {
+	// Validar nome
+	if tag.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Nome da tag é obrigatório"})
+		return false
 	}
 
-	var tag domain.PLCTag
-	if err := c.ShouldBindJSON(&tag); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+	// Validar tipo de dados
+	if tag.DataType == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Tipo de dados da tag é obrigatório"})
+		return false
 	}
-
-	tag.PLCID = plcID
 
 	// Validar bit offset para tipo bool
 	if tag.DataType == "bool" {
 		if tag.BitOffset < 0 || tag.BitOffset > 7 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Bit offset deve estar entre 0 e 7 para tipo bool"})
-			return
+			return false
 		}
-	} else {
-		// Para outros tipos de dados, o bit offset deve ser 0
-		tag.BitOffset = 0
 	}
 
+	// Validar scan rate
+	if tag.ScanRate < 100 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Taxa de scan deve ser maior ou igual a 100ms"})
+		return false
+	}
+
+	return true
+}
+
+// CreatePLCTag cria uma nova tag para um PLC
+func (h *PLCHandler) CreatePLCTag(c *gin.Context) {
+	// Extrair e validar o ID do PLC
+	plcID, err := h.getIDFromParams(c)
+	if err != nil {
+		return
+	}
+
+	// Fazer binding dos dados da tag
+	var tag domain.PLCTag
+	if err := c.ShouldBindJSON(&tag); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Erro ao processar dados: %v", err)})
+		return
+	}
+
+	// Validar campos
+	if !h.validarTag(c, &tag) {
+		return
+	}
+
+	// Associar tag ao PLC
+	tag.PLCID = plcID
+
+	// Criar a tag
 	id, err := h.plcService.CreateTag(tag)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Erro ao criar tag: %v", err)})
 		return
 	}
 
@@ -198,37 +337,54 @@ func (h *PLCHandler) CreatePLCTag(c *gin.Context) {
 
 // UpdatePLCTag atualiza uma tag existente
 func (h *PLCHandler) UpdatePLCTag(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+	// Extrair e validar o ID da tag
+	id, err := h.getIDFromParams(c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
 		return
 	}
 
-	var tag domain.PLCTag
-	if err := c.ShouldBindJSON(&tag); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	tag.ID = id
-
-	// Validar bit offset para tipo bool
-	if tag.DataType == "bool" {
-		if tag.BitOffset < 0 || tag.BitOffset > 7 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Bit offset deve estar entre 0 e 7 para tipo bool"})
-			return
-		}
-	} else {
-		// Para outros tipos de dados, o bit offset deve ser 0
-		tag.BitOffset = 0
-	}
-
-	if err := h.plcService.UpdateTag(tag); err != nil {
+	// Buscar a tag existente para confirmar que existe
+	oldTag, err := h.plcService.GetTagByID(id)
+	if err != nil {
 		statusCode := http.StatusInternalServerError
-		if err == domain.ErrPLCTagNotFound {
+
+		if errors.Is(err, domain.ErrPLCTagNotFound) {
 			statusCode = http.StatusNotFound
 		}
-		c.JSON(statusCode, gin.H{"error": err.Error()})
+
+		c.JSON(statusCode, gin.H{"error": fmt.Sprintf("Erro ao buscar tag: %v", err)})
+		return
+	}
+
+	// Fazer binding dos dados de atualização
+	var tag domain.PLCTag
+	if err := c.ShouldBindJSON(&tag); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Erro ao processar dados: %v", err)})
+		return
+	}
+
+	// Validar campos
+	if !h.validarTag(c, &tag) {
+		return
+	}
+
+	// Garantir que o ID é o correto
+	tag.ID = id
+
+	// Manter o PLCID se não foi alterado
+	if tag.PLCID == 0 {
+		tag.PLCID = oldTag.PLCID
+	}
+
+	// Atualizar a tag
+	if err := h.plcService.UpdateTag(tag); err != nil {
+		statusCode := http.StatusInternalServerError
+
+		if errors.Is(err, domain.ErrPLCTagNotFound) {
+			statusCode = http.StatusNotFound
+		}
+
+		c.JSON(statusCode, gin.H{"error": fmt.Sprintf("Erro ao atualizar tag: %v", err)})
 		return
 	}
 
@@ -237,18 +393,21 @@ func (h *PLCHandler) UpdatePLCTag(c *gin.Context) {
 
 // DeletePLCTag exclui uma tag
 func (h *PLCHandler) DeletePLCTag(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+	// Extrair e validar o ID
+	id, err := h.getIDFromParams(c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
 		return
 	}
 
+	// Excluir a tag
 	if err := h.plcService.DeleteTag(id); err != nil {
 		statusCode := http.StatusInternalServerError
-		if err == domain.ErrPLCTagNotFound {
+
+		if errors.Is(err, domain.ErrPLCTagNotFound) {
 			statusCode = http.StatusNotFound
 		}
-		c.JSON(statusCode, gin.H{"error": err.Error()})
+
+		c.JSON(statusCode, gin.H{"error": fmt.Sprintf("Erro ao excluir tag: %v", err)})
 		return
 	}
 
@@ -257,22 +416,40 @@ func (h *PLCHandler) DeletePLCTag(c *gin.Context) {
 
 // WriteTagValue escreve um valor em uma tag
 func (h *PLCHandler) WriteTagValue(c *gin.Context) {
+	// Fazer binding dos dados
 	var input struct {
 		TagName string      `json:"tag_name" binding:"required"`
 		Value   interface{} `json:"value" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Erro ao processar dados: %v", err)})
 		return
 	}
 
+	// Validar tag_name
+	if input.TagName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Nome da tag é obrigatório"})
+		return
+	}
+
+	// Validar value
+	if input.Value == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Valor não pode ser nulo"})
+		return
+	}
+
+	// Escrever o valor
 	if err := h.plcService.WriteTagValue(input.TagName, input.Value); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Erro ao escrever valor: %v", err)})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Valor escrito com sucesso",
+		"time":    time.Now().Format(time.RFC3339),
+	})
 }
 
 // GetPLCStatus retorna o status e estatísticas de monitoramento de PLCs
@@ -290,7 +467,7 @@ func (h *PLCHandler) GetPLCStatus(c *gin.Context) {
 func (h *PLCHandler) DiagnosticTags(c *gin.Context) {
 	results, err := h.plcService.DiagnosticTags()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Erro ao executar diagnóstico: %v", err)})
 		return
 	}
 
@@ -299,15 +476,16 @@ func (h *PLCHandler) DiagnosticTags(c *gin.Context) {
 
 // ResetPLCConnection força uma reconexão com um PLC específico
 func (h *PLCHandler) ResetPLCConnection(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+	// Extrair e validar o ID
+	id, err := h.getIDFromParams(c)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
 		return
 	}
 
+	// Resetar a conexão
 	err = h.plcService.ResetPLCConnection(id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Erro ao resetar conexão: %v", err)})
 		return
 	}
 
@@ -321,7 +499,7 @@ func (h *PLCHandler) ResetPLCConnection(c *gin.Context) {
 func (h *PLCHandler) GetPLCHealth(c *gin.Context) {
 	health, err := h.plcService.CheckPLCHealth()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Erro ao verificar saúde: %v", err)})
 		return
 	}
 
@@ -339,4 +517,21 @@ func (h *PLCHandler) GetDetailedStats(c *gin.Context) {
 		"statistics": stats,
 		"time":       time.Now().Format(time.RFC3339),
 	})
+}
+
+// getIDFromParams extrai o ID dos parâmetros da URL
+func (h *PLCHandler) getIDFromParams(c *gin.Context) (int, error) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
+		return 0, err
+	}
+
+	if id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID deve ser maior que zero"})
+		return 0, fmt.Errorf("ID inválido")
+	}
+
+	return id, nil
 }

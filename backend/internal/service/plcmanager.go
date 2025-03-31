@@ -1,14 +1,24 @@
+// internal/service/plcmanager.go
 package service
 
 import (
 	"app_padrao/internal/domain"
 	"app_padrao/pkg/plc"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
 	"sync"
 	"time"
+)
+
+// Erros específicos
+var (
+	ErrPLCNotConnected   = errors.New("PLC não está conectado")
+	ErrPLCNotFound       = errors.New("PLC não encontrado")
+	ErrTagNotFound       = errors.New("tag não encontrada")
+	ErrWriteNotPermitted = errors.New("escrita não permitida nesta tag")
 )
 
 // PLCManager encapsula a lógica de gerenciamento dos PLCs
@@ -32,8 +42,24 @@ type PLCManager struct {
 	statsInterval time.Duration
 	statsMutex    sync.RWMutex
 
+	// Controle de monitoramento de tags
+	tagMonitors     map[int]context.CancelFunc
+	tagMonitorMutex sync.RWMutex
+
 	// Configuração de logging
 	enableDetailedLogging bool
+
+	// Valores de configuração
+	config ManagerConfig
+}
+
+// ManagerConfig contém configurações para o PLCManager
+type ManagerConfig struct {
+	UpdateTagsInterval time.Duration
+	StatsInterval      time.Duration
+	RetryInterval      time.Duration
+	ConnectionTimeout  time.Duration
+	DetailedLogging    bool
 }
 
 // PLCManagerStats contém estatísticas do gerenciador de PLCs
@@ -65,17 +91,28 @@ func NewPLCManager(
 	tagRepo domain.PLCTagRepository,
 	cache domain.PLCCache,
 ) *PLCManager {
+	// Configuração padrão
+	config := ManagerConfig{
+		UpdateTagsInterval: 5 * time.Second,
+		StatsInterval:      60 * time.Second,
+		RetryInterval:      10 * time.Second,
+		ConnectionTimeout:  5 * time.Second,
+		DetailedLogging:    true,
+	}
+
 	return &PLCManager{
 		plcRepo:           plcRepo,
 		tagRepo:           tagRepo,
 		cache:             cache,
 		activeConnections: make(map[int]*PLCConnection),
-		statsInterval:     time.Minute,
+		tagMonitors:       make(map[int]context.CancelFunc),
+		statsInterval:     config.StatsInterval,
 		stats: PLCManagerStats{
 			ConnectionStats: make(map[int]PLCConnectionStats),
 			LastUpdated:     time.Now(),
 		},
-		enableDetailedLogging: true, // Ativar logging detalhado por padrão
+		enableDetailedLogging: config.DetailedLogging,
+		config:                config,
 	}
 }
 
@@ -108,6 +145,16 @@ func (m *PLCManager) Stop() {
 	if m.cancel != nil {
 		m.cancel()
 	}
+
+	// Parar todos os monitores de tags
+	m.tagMonitorMutex.Lock()
+	for _, cancel := range m.tagMonitors {
+		if cancel != nil {
+			cancel()
+		}
+	}
+	m.tagMonitors = make(map[int]context.CancelFunc)
+	m.tagMonitorMutex.Unlock()
 
 	// Aguardar goroutines encerrarem
 	m.wg.Wait()
@@ -232,19 +279,6 @@ func (m *PLCManager) updateStats() {
 	}
 }
 
-// isCriticalError verifica se o erro indica perda de conexão
-func isCriticalError(err error) bool {
-	if err == nil {
-		return false
-	}
-	lower := strings.ToLower(err.Error())
-	return strings.Contains(lower, "forçado") ||
-		strings.Contains(lower, "cancelado") ||
-		strings.Contains(lower, "connection") ||
-		strings.Contains(lower, "timeout") ||
-		strings.Contains(lower, "refused")
-}
-
 // PLCConnection é a implementação da conexão com o PLC
 type PLCConnection struct {
 	plcID    int
@@ -328,29 +362,29 @@ func (p *PLCConnection) IsActive() bool {
 	return p.active && p.s7Client != nil
 }
 
-// ReadTag lê uma tag do PLC - IMPLEMENTAÇÃO REAL
+// ReadTag lê uma tag do PLC
 func (p *PLCConnection) ReadTag(dbNumber int, byteOffset int, dataType string, bitOffset int) (interface{}, error) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
 	if !p.active || p.s7Client == nil {
-		return nil, fmt.Errorf("conexão com PLC não está ativa")
+		return nil, ErrPLCNotConnected
 	}
 
-	// Chamar o método ReadTag do cliente S7 real que se conecta ao PLC físico
+	// Chamar o método ReadTag do cliente S7 real
 	return p.s7Client.ReadTag(dbNumber, byteOffset, dataType, bitOffset)
 }
 
-// WriteTag escreve uma tag no PLC - IMPLEMENTAÇÃO REAL
+// WriteTag escreve uma tag no PLC
 func (p *PLCConnection) WriteTag(dbNumber int, byteOffset int, dataType string, bitOffset int, value interface{}) error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
 	if !p.active || p.s7Client == nil {
-		return fmt.Errorf("conexão com PLC não está ativa")
+		return ErrPLCNotConnected
 	}
 
-	// Chamar o método WriteTag do cliente S7 real que se conecta ao PLC físico
+	// Chamar o método WriteTag do cliente S7 real
 	return p.s7Client.WriteTag(dbNumber, byteOffset, dataType, bitOffset, value)
 }
 
@@ -365,7 +399,7 @@ func (m *PLCManager) runAllPLCs(ctx context.Context) {
 	plcCancels := make(map[int]context.CancelFunc)
 
 	// Verificar PLCs a cada 5 segundos
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(m.config.UpdateTagsInterval)
 	defer ticker.Stop()
 
 	log.Println("Iniciando monitoramento de PLCs...")
@@ -448,22 +482,41 @@ func (m *PLCManager) monitorPLC(ctx context.Context, plcConfig domain.PLC) {
 	// Criar conexão com o PLC
 	conn := NewPLCConnection(plcConfig.ID, plcConfig.IPAddress, plcConfig.Rack, plcConfig.Slot)
 
-	// Conectar ao PLC
-	if err := conn.Connect(); err != nil {
-		log.Printf("Erro ao conectar ao PLC %d: %v", plcConfig.ID, err)
+	// Conectar ao PLC com retry
+	maxRetries := 3
+	connected := false
 
-		// Atualizar status do PLC para "offline"
-		err := m.plcRepo.UpdatePLCStatus(domain.PLCStatus{
-			PLCID:      plcConfig.ID,
-			Status:     "offline",
-			LastUpdate: time.Now(),
-		})
-		if err != nil {
-			log.Printf("Erro ao atualizar status do PLC %d: %v", plcConfig.ID, err)
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if err := conn.Connect(); err != nil {
+			log.Printf("Tentativa %d/%d - Erro ao conectar ao PLC %d: %v",
+				attempt, maxRetries, plcConfig.ID, err)
+
+			// Atualizar status do PLC para "offline"
+			updateErr := m.plcRepo.UpdatePLCStatus(domain.PLCStatus{
+				PLCID:      plcConfig.ID,
+				Status:     "offline",
+				LastUpdate: time.Now(),
+			})
+			if updateErr != nil {
+				log.Printf("Erro ao atualizar status do PLC %d: %v", plcConfig.ID, updateErr)
+			}
+
+			// Tentar novamente após espera
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(m.config.RetryInterval):
+				// Continuar para a próxima tentativa
+			}
+		} else {
+			connected = true
+			break
 		}
+	}
 
-		// Tentar novamente após 10 segundos
-		time.Sleep(10 * time.Second)
+	if !connected {
+		log.Printf("Falha ao conectar ao PLC %d após %d tentativas. Desistindo.",
+			plcConfig.ID, maxRetries)
 		return
 	}
 
@@ -499,16 +552,12 @@ func (m *PLCManager) monitorPLC(ctx context.Context, plcConfig domain.PLC) {
 func (m *PLCManager) monitorPLCTags(ctx context.Context, plcConfig domain.PLC, conn *PLCConnection) {
 	log.Printf("Iniciando monitoramento de tags para PLC %d: %s", plcConfig.ID, plcConfig.Name)
 
-	// Mapa para armazenar valores anteriores para comparação
-	lastValues := make(map[int]interface{})
+	// Usar sync.Map para segurança durante concorrência
+	var lastValues sync.Map
 
-	// CORREÇÃO: Ticker para atualizar periodicamente a lista de tags
-	tagsUpdateTicker := time.NewTicker(5 * time.Second)
+	// Ticker para atualizar periodicamente a lista de tags
+	tagsUpdateTicker := time.NewTicker(m.config.UpdateTagsInterval)
 	defer tagsUpdateTicker.Stop()
-
-	// Agrupar tags por taxa de scan
-	tagsByRate := make(map[int][]domain.PLCTag)
-	var wg sync.WaitGroup
 
 	// Inicialização - Buscar tags inicialmente
 	tags, err := m.tagRepo.GetPLCTags(plcConfig.ID)
@@ -524,196 +573,34 @@ func (m *PLCManager) monitorPLCTags(ctx context.Context, plcConfig domain.PLC, c
 			}
 		}
 
-		// Agrupar tags por taxa de scan
-		for _, tag := range tags {
-			if !tag.Active {
-				continue
-			}
-			tagsByRate[tag.ScanRate] = append(tagsByRate[tag.ScanRate], tag)
-		}
+		// Processar tags iniciais
+		m.processTagsUpdate(ctx, tags, plcConfig, conn, &lastValues)
 	}
 
-	// Criar uma goroutine para cada grupo de taxa de scan
-	for scanRate, tagsGroup := range tagsByRate {
-		wg.Add(1)
-		go func(rate int, tags []domain.PLCTag) {
-			defer wg.Done()
-
-			log.Printf("PLC %d: Monitorando %d tags com taxa de %d ms",
-				plcConfig.ID, len(tags), rate)
-
-			ticker := time.NewTicker(time.Duration(rate) * time.Millisecond)
-			defer ticker.Stop()
-
-			for {
-				select {
-				case <-ctx.Done():
-					log.Printf("PLC %d: Encerrando monitoramento de %d tags",
-						plcConfig.ID, len(tags))
-					return
-
-				case <-ticker.C:
-					// Ler valor de cada tag no grupo
-					updatedValues := make([]domain.TagValue, 0, len(tags))
-
-					for _, tag := range tags {
-						// Converter ByteOffset de float64 para int
-						byteOffset := int(tag.ByteOffset)
-
-						// Verificação adicional para garantir que o tipo é válido
-						if tag.DataType == "" {
-							log.Printf("ALERTA: Tag %s (ID=%d) não tem tipo definido, assumindo 'word'",
-								tag.Name, tag.ID)
-							tag.DataType = "word"
-						}
-
-						// Adicionar log para rastrear tipo de dados
-						if m.enableDetailedLogging {
-							log.Printf("Lendo tag %s (ID=%d) - Tipo: %s, DB%d.DBX%d.%d",
-								tag.Name, tag.ID, tag.DataType, tag.DBNumber, byteOffset, tag.BitOffset)
-						}
-
-						value, err := conn.ReadTag(
-							tag.DBNumber,
-							byteOffset,
-							tag.DataType,
-							tag.BitOffset,
-						)
-
-						if err != nil {
-							log.Printf("Erro ao ler tag %s (ID=%d): %v",
-								tag.Name, tag.ID, err)
-
-							// Incrementar contador de erros
-							m.statsMutex.Lock()
-							m.stats.ReadErrors++
-							if connStats, exists := m.stats.ConnectionStats[plcConfig.ID]; exists {
-								connStats.ReadErrors++
-								m.stats.ConnectionStats[plcConfig.ID] = connStats
-							}
-							m.statsMutex.Unlock()
-							continue
-						}
-
-						// Verificar o tipo do valor retornado
-						if m.enableDetailedLogging {
-							log.Printf("Tag %s (ID=%d): Tipo definido '%s', valor lido do tipo %T: %v",
-								tag.Name, tag.ID, tag.DataType, value, value)
-						}
-
-						// Verificar se precisamos atualizar o cache
-						shouldUpdate := true
-
-						// Se a tag monitora apenas mudanças
-						if tag.MonitorChanges {
-							// Buscar valor anterior
-							lastValue, exists := lastValues[tag.ID]
-
-							// Comparar com valor atual
-							if exists {
-								if plc.CompareValues(lastValue, value) {
-									// Valores iguais, não atualizar
-									shouldUpdate = false
-								}
-							}
-						}
-
-						if shouldUpdate {
-							// Atualizar valor no mapa local
-							lastValues[tag.ID] = value
-
-							// Adicionar ao lote para atualização
-							updatedValues = append(updatedValues, domain.TagValue{
-								PLCID:     plcConfig.ID,
-								TagID:     tag.ID,
-								Value:     value,
-								Timestamp: time.Now(),
-							})
-
-							// Logging detalhado de valores
-							if m.enableDetailedLogging {
-								// Formatação mais legível do valor baseado no tipo de dados
-								var valorFormatado string
-								switch tag.DataType {
-								case "real":
-									if v, ok := value.(float32); ok {
-										valorFormatado = fmt.Sprintf("%.3f", v)
-									} else {
-										valorFormatado = fmt.Sprintf("%v (%T)", value, value)
-									}
-								case "bool":
-									if v, ok := value.(bool); ok {
-										if v {
-											valorFormatado = "TRUE"
-										} else {
-											valorFormatado = "FALSE"
-										}
-									} else {
-										valorFormatado = fmt.Sprintf("%v (%T)", value, value)
-									}
-								default:
-									valorFormatado = fmt.Sprintf("%v", value)
-								}
-
-								// Log detalhado com formato consistente para facilitar leitura
-								log.Printf("[PLC:%s] [TAG:%s] [TIPO:%s] [VALOR:%s] [DB%d.DBX%d.%d]",
-									plcConfig.Name,
-									tag.Name,
-									tag.DataType,
-									valorFormatado,
-									tag.DBNumber,
-									byteOffset,
-									tag.BitOffset)
-							}
-						}
-					}
-
-					// Atualizar valores em lote para melhor performance
-					if len(updatedValues) > 0 {
-						if err := m.cache.BatchSetTagValues(updatedValues); err != nil {
-							log.Printf("Erro ao atualizar valores em lote: %v", err)
-						} else {
-							// Atualizar estatísticas
-							m.statsMutex.Lock()
-							m.stats.TagsRead += int64(len(updatedValues))
-							m.statsMutex.Unlock()
-						}
-					}
-				}
-			}
-		}(scanRate, tagsGroup)
-	}
-
-	// Loop principal para atualização das tags
+	// Loop principal para monitoramento
 	for {
 		select {
 		case <-ctx.Done():
-			// Aguardar finalização das goroutines
-			wg.Wait()
 			return
 
 		case <-tagsUpdateTicker.C:
-			// CORREÇÃO: Atualizar periodicamente a lista de tags monitoradas
+			// Atualizar tags
 			updatedTags, err := m.tagRepo.GetPLCTags(plcConfig.ID)
 			if err != nil {
 				log.Printf("Erro ao atualizar lista de tags do PLC %d: %v", plcConfig.ID, err)
 				continue
 			}
 
-			// Identificar novas tags ativas
-			newActiveTagsByRate := make(map[int][]domain.PLCTag)
+			// Verificar novas tags e inicializar valores
 			for _, tag := range updatedTags {
 				if !tag.Active {
 					continue
 				}
 
-				// CORREÇÃO IMPORTANTE: Verificar se é uma tag nova
-				_, exists := lastValues[tag.ID]
-				if !exists {
-					// Realizar leitura inicial imediata para configurar o tipo correto
+				// Se a tag não tem valor inicial, fazer leitura inicial
+				if _, exists := lastValues.Load(tag.ID); !exists {
 					if tag.DataType != "" {
-						// Log inicial
-						log.Printf("Nova tag detectada: %s (ID=%d, Tipo: %s, DB%d.DBX%d.%d)",
+						log.Printf("Inicializando tag %s (ID=%d, Tipo: %s, DB%d.DBX%d.%d)",
 							tag.Name, tag.ID, tag.DataType, tag.DBNumber, tag.ByteOffset, tag.BitOffset)
 
 						// Leitura imediata
@@ -740,94 +627,204 @@ func (m *PLCManager) monitorPLCTags(ctx context.Context, plcConfig domain.PLC, c
 								log.Printf("Erro ao armazenar valor inicial da tag %s: %v", tag.Name, err)
 							} else {
 								// Armazenar no mapa local também
-								lastValues[tag.ID] = value
+								lastValues.Store(tag.ID, value)
 								log.Printf("Tag %s inicializada com valor: %v", tag.Name, value)
 							}
 						}
 					}
 				}
-
-				// Agrupar por taxa de scan
-				newActiveTagsByRate[tag.ScanRate] = append(newActiveTagsByRate[tag.ScanRate], tag)
 			}
 
-			// Verificar se há novas taxas de scan
-			for rate, tags := range newActiveTagsByRate {
-				// Se não existe uma goroutine para esta taxa
-				if _, exists := tagsByRate[rate]; !exists {
-					tagsByRate[rate] = tags
+			// Processar atualizações de tags
+			m.processTagsUpdate(ctx, updatedTags, plcConfig, conn, &lastValues)
+		}
+	}
+}
 
-					// Criar nova goroutine para essa taxa
-					wg.Add(1)
-					go func(r int, t []domain.PLCTag) {
-						defer wg.Done()
+// processTagsUpdate processa atualizações nas tags de um PLC
+func (m *PLCManager) processTagsUpdate(ctx context.Context, tags []domain.PLCTag, plcConfig domain.PLC, conn *PLCConnection, lastValues *sync.Map) {
+	// Agrupar tags por taxa de scan
+	tagsByRate := make(map[int][]domain.PLCTag)
+	activeRates := make(map[int]bool)
 
-						log.Printf("PLC %d: Iniciando monitoramento para %d tags com taxa de %d ms",
-							plcConfig.ID, len(t), r)
+	for _, tag := range tags {
+		if !tag.Active {
+			continue
+		}
 
-						ticker := time.NewTicker(time.Duration(r) * time.Millisecond)
-						defer ticker.Stop()
+		// Definir scan rate mínimo
+		if tag.ScanRate < 100 {
+			tag.ScanRate = 100 // Mínimo de 100ms
+		}
 
-						for {
-							select {
-							case <-ctx.Done():
-								return
+		tagsByRate[tag.ScanRate] = append(tagsByRate[tag.ScanRate], tag)
+		activeRates[tag.ScanRate] = true
+	}
 
-							case <-ticker.C:
-								// Mesmo código de leitura das tags como acima
-								updatedValues := make([]domain.TagValue, 0, len(t))
+	// Parar monitores que não têm mais tags
+	m.tagMonitorMutex.Lock()
+	for rate, cancel := range m.tagMonitors {
+		if !activeRates[rate] {
+			cancel()
+			delete(m.tagMonitors, rate)
+			log.Printf("Monitor de tags com taxa %dms encerrado para PLC %d", rate, plcConfig.ID)
+		}
+	}
+	m.tagMonitorMutex.Unlock()
 
-								for _, tag := range t {
-									// Lógica de leitura de tag (similar ao código acima)
-									byteOffset := int(tag.ByteOffset)
+	// Iniciar novos monitores para rates que não existem
+	for rate, rateTags := range tagsByRate {
+		m.tagMonitorMutex.Lock()
+		if _, exists := m.tagMonitors[rate]; !exists {
+			monitorCtx, cancel := context.WithCancel(ctx)
+			m.tagMonitors[rate] = cancel
 
-									if tag.DataType == "" {
-										log.Printf("ALERTA: Tag %s (ID=%d) não tem tipo definido, assumindo 'word'",
-											tag.Name, tag.ID)
-										tag.DataType = "word"
-									}
+			log.Printf("Iniciando monitor de tags para PLC %d com taxa %dms (%d tags)",
+				plcConfig.ID, rate, len(rateTags))
 
-									value, err := conn.ReadTag(
-										tag.DBNumber,
-										byteOffset,
-										tag.DataType,
-										tag.BitOffset,
-									)
+			go m.startTagMonitor(rate, rateTags, monitorCtx, plcConfig, conn, lastValues)
+		}
+		m.tagMonitorMutex.Unlock()
+	}
+}
 
-									if err != nil {
-										log.Printf("Erro ao ler tag %s (ID=%d): %v", tag.Name, tag.ID, err)
-										continue
-									}
+// startTagMonitor inicia o monitoramento de um grupo de tags com a mesma taxa de scan
+func (m *PLCManager) startTagMonitor(rate int, tags []domain.PLCTag, ctx context.Context, plcConfig domain.PLC, conn *PLCConnection, lastValues *sync.Map) {
+	ticker := time.NewTicker(time.Duration(rate) * time.Millisecond)
+	defer ticker.Stop()
 
-									// Verificar se precisa atualizar o cache
-									shouldUpdate := true
-									if tag.MonitorChanges {
-										lastValue, exists := lastValues[tag.ID]
-										if exists && plc.CompareValues(lastValue, value) {
-											shouldUpdate = false
-										}
-									}
+	log.Printf("PLC %d: Monitorando %d tags com taxa de %d ms",
+		plcConfig.ID, len(tags), rate)
 
-									if shouldUpdate {
-										lastValues[tag.ID] = value
-										updatedValues = append(updatedValues, domain.TagValue{
-											PLCID:     plcConfig.ID,
-											TagID:     tag.ID,
-											Value:     value,
-											Timestamp: time.Now(),
-										})
-									}
-								}
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("PLC %d: Encerrando monitoramento de %d tags",
+				plcConfig.ID, len(tags))
+			return
 
-								// Atualizar valores no cache
-								if len(updatedValues) > 0 {
-									if err := m.cache.BatchSetTagValues(updatedValues); err != nil {
-										log.Printf("Erro ao atualizar valores em lote: %v", err)
-									}
-								}
-							}
+		case <-ticker.C:
+			// Ler valor de cada tag no grupo
+			updatedValues := make([]domain.TagValue, 0, len(tags))
+
+			for _, tag := range tags {
+				// Converter ByteOffset de float64 para int
+				byteOffset := int(tag.ByteOffset)
+
+				// Verificação adicional para garantir que o tipo é válido
+				if tag.DataType == "" {
+					log.Printf("ALERTA: Tag %s (ID=%d) não tem tipo definido, assumindo 'word'",
+						tag.Name, tag.ID)
+					tag.DataType = "word"
+				}
+
+				// Adicionar log para rastrear tipo de dados
+				if m.enableDetailedLogging {
+					log.Printf("Lendo tag %s (ID=%d) - Tipo: %s, DB%d.DBX%d.%d",
+						tag.Name, tag.ID, tag.DataType, tag.DBNumber, byteOffset, tag.BitOffset)
+				}
+
+				value, err := conn.ReadTag(
+					tag.DBNumber,
+					byteOffset,
+					tag.DataType,
+					tag.BitOffset,
+				)
+
+				if err != nil {
+					log.Printf("Erro ao ler tag %s (ID=%d): %v",
+						tag.Name, tag.ID, err)
+
+					// Incrementar contador de erros
+					m.statsMutex.Lock()
+					m.stats.ReadErrors++
+					if connStats, exists := m.stats.ConnectionStats[plcConfig.ID]; exists {
+						connStats.ReadErrors++
+						m.stats.ConnectionStats[plcConfig.ID] = connStats
+					}
+					m.statsMutex.Unlock()
+					continue
+				}
+
+				// Verificar o tipo do valor retornado
+				if m.enableDetailedLogging {
+					log.Printf("Tag %s (ID=%d): Tipo definido '%s', valor lido do tipo %T: %v",
+						tag.Name, tag.ID, tag.DataType, value, value)
+				}
+
+				// Verificar se precisamos atualizar o cache
+				shouldUpdate := true
+
+				// Se a tag monitora apenas mudanças
+				if tag.MonitorChanges {
+					// Buscar valor anterior
+					if lastValue, exists := lastValues.Load(tag.ID); exists {
+						if plc.CompareValues(lastValue, value) {
+							// Valores iguais, não atualizar
+							shouldUpdate = false
 						}
-					}(rate, tags)
+					}
+				}
+
+				if shouldUpdate {
+					// Atualizar valor no mapa local
+					lastValues.Store(tag.ID, value)
+
+					// Adicionar ao lote para atualização
+					updatedValues = append(updatedValues, domain.TagValue{
+						PLCID:     plcConfig.ID,
+						TagID:     tag.ID,
+						Value:     value,
+						Timestamp: time.Now(),
+					})
+
+					// Logging detalhado de valores
+					if m.enableDetailedLogging {
+						// Formatação mais legível do valor baseado no tipo de dados
+						var valorFormatado string
+						switch tag.DataType {
+						case "real":
+							if v, ok := value.(float32); ok {
+								valorFormatado = fmt.Sprintf("%.3f", v)
+							} else {
+								valorFormatado = fmt.Sprintf("%v (%T)", value, value)
+							}
+						case "bool":
+							if v, ok := value.(bool); ok {
+								if v {
+									valorFormatado = "TRUE"
+								} else {
+									valorFormatado = "FALSE"
+								}
+							} else {
+								valorFormatado = fmt.Sprintf("%v (%T)", value, value)
+							}
+						default:
+							valorFormatado = fmt.Sprintf("%v", value)
+						}
+
+						// Log detalhado com formato consistente para facilitar leitura
+						log.Printf("[PLC:%s] [TAG:%s] [TIPO:%s] [VALOR:%s] [DB%d.DBX%d.%d]",
+							plcConfig.Name,
+							tag.Name,
+							tag.DataType,
+							valorFormatado,
+							tag.DBNumber,
+							byteOffset,
+							tag.BitOffset)
+					}
+				}
+			}
+
+			// Atualizar valores em lote para melhor performance
+			if len(updatedValues) > 0 {
+				if err := m.cache.BatchSetTagValues(updatedValues); err != nil {
+					log.Printf("Erro ao atualizar valores em lote: %v", err)
+				} else {
+					// Atualizar estatísticas
+					m.statsMutex.Lock()
+					m.stats.TagsRead += int64(len(updatedValues))
+					m.statsMutex.Unlock()
 				}
 			}
 		}
@@ -841,11 +838,11 @@ func (m *PLCManager) GetConnectionByPLCID(plcID int) (*PLCConnection, error) {
 
 	conn, exists := m.activeConnections[plcID]
 	if !exists {
-		return nil, fmt.Errorf("não há conexão ativa com o PLC %d", plcID)
+		return nil, fmt.Errorf("%w: ID %d", ErrPLCNotFound, plcID)
 	}
 
 	if !conn.IsActive() {
-		return nil, fmt.Errorf("a conexão com o PLC %d está inativa", plcID)
+		return nil, fmt.Errorf("%w: ID %d", ErrPLCNotConnected, plcID)
 	}
 
 	return conn, nil
@@ -862,7 +859,7 @@ func (m *PLCManager) WriteTagByName(tagName string, value interface{}) error {
 	}
 
 	if len(tags) == 0 {
-		return fmt.Errorf("tag '%s' não encontrada", tagName)
+		return fmt.Errorf("%w: '%s'", ErrTagNotFound, tagName)
 	}
 
 	// Usar a primeira tag encontrada
@@ -870,13 +867,13 @@ func (m *PLCManager) WriteTagByName(tagName string, value interface{}) error {
 
 	// Verificar se a tag permite escrita
 	if !tag.CanWrite {
-		return fmt.Errorf("tag '%s' não permite escrita", tagName)
+		return fmt.Errorf("%w: '%s'", ErrWriteNotPermitted, tagName)
 	}
 
 	// Buscar conexão com o PLC
 	conn, err := m.GetConnectionByPLCID(tag.PLCID)
 	if err != nil {
-		return fmt.Errorf("erro de conexão: %v", err)
+		return fmt.Errorf("erro de conexão: %w", err)
 	}
 
 	// Converter ByteOffset para inteiro
@@ -895,24 +892,43 @@ func (m *PLCManager) WriteTagByName(tagName string, value interface{}) error {
 	log.Printf("WriteTagByName - Escrevendo na tag %s: Tipo=%s, DB%d.DBX%d.%d, Valor=%v (%T)",
 		tag.Name, tag.DataType, tag.DBNumber, byteOffset, tag.BitOffset, value, value)
 
-	// Escrever o valor na tag
-	if err := conn.WriteTag(
-		tag.DBNumber,
-		byteOffset,
-		tag.DataType,
-		tag.BitOffset,
-		value,
-	); err != nil {
-		// Incrementar contador de erros
-		m.statsMutex.Lock()
-		m.stats.WriteErrors++
-		if connStats, exists := m.stats.ConnectionStats[tag.PLCID]; exists {
-			connStats.WriteErrors++
-			m.stats.ConnectionStats[tag.PLCID] = connStats
-		}
-		m.statsMutex.Unlock()
+	// Tentar escrever com retry em caso de erro
+	maxRetries := 2
+	var writeErr error
 
-		return fmt.Errorf("erro ao escrever no PLC: %v", err)
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		// Escrever o valor na tag
+		writeErr = conn.WriteTag(
+			tag.DBNumber,
+			byteOffset,
+			tag.DataType,
+			tag.BitOffset,
+			value,
+		)
+
+		if writeErr == nil {
+			break
+		}
+
+		// Se o erro não é de conexão ou estamos na última tentativa, desistir
+		if !errors.Is(writeErr, ErrPLCNotConnected) || attempt == maxRetries {
+			// Incrementar contador de erros
+			m.statsMutex.Lock()
+			m.stats.WriteErrors++
+			if connStats, exists := m.stats.ConnectionStats[tag.PLCID]; exists {
+				connStats.WriteErrors++
+				m.stats.ConnectionStats[tag.PLCID] = connStats
+			}
+			m.statsMutex.Unlock()
+
+			return fmt.Errorf("erro ao escrever no PLC: %w", writeErr)
+		}
+
+		// Tentar reconectar antes da próxima tentativa
+		log.Printf("Erro de conexão ao escrever. Tentando reconectar... (tentativa %d/%d)",
+			attempt+1, maxRetries)
+		conn.Connect()
+		time.Sleep(500 * time.Millisecond)
 	}
 
 	// Atualizar o valor no cache para feedback imediato
