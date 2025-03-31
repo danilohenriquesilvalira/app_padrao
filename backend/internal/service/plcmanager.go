@@ -644,7 +644,7 @@ func (m *PLCManager) monitorPLCTags(ctx context.Context, plcConfig domain.PLC, c
 // processTagsUpdate processa atualizações nas tags de um PLC
 func (m *PLCManager) processTagsUpdate(ctx context.Context, tags []domain.PLCTag, plcConfig domain.PLC, conn *PLCConnection, lastValues *sync.Map) {
 	// Agrupar tags por taxa de scan
-	tagsByRate := make(map[int][]domain.PLCTag)
+	tagsByRate := make(map[int]bool)
 	activeRates := make(map[int]bool)
 
 	for _, tag := range tags {
@@ -657,7 +657,7 @@ func (m *PLCManager) processTagsUpdate(ctx context.Context, tags []domain.PLCTag
 			tag.ScanRate = 100 // Mínimo de 100ms
 		}
 
-		tagsByRate[tag.ScanRate] = append(tagsByRate[tag.ScanRate], tag)
+		tagsByRate[tag.ScanRate] = true
 		activeRates[tag.ScanRate] = true
 	}
 
@@ -673,41 +673,59 @@ func (m *PLCManager) processTagsUpdate(ctx context.Context, tags []domain.PLCTag
 	m.tagMonitorMutex.Unlock()
 
 	// Iniciar novos monitores para rates que não existem
-	for rate, rateTags := range tagsByRate {
+	for rate := range tagsByRate {
 		m.tagMonitorMutex.Lock()
 		if _, exists := m.tagMonitors[rate]; !exists {
 			monitorCtx, cancel := context.WithCancel(ctx)
 			m.tagMonitors[rate] = cancel
 
-			log.Printf("Iniciando monitor de tags para PLC %d com taxa %dms (%d tags)",
-				plcConfig.ID, rate, len(rateTags))
+			log.Printf("Iniciando monitor de tags para PLC %d com taxa %dms",
+				plcConfig.ID, rate)
 
-			go m.startTagMonitor(rate, rateTags, monitorCtx, plcConfig, conn, lastValues)
+			go m.startTagMonitor(rate, plcConfig.ID, monitorCtx, plcConfig, conn, lastValues)
 		}
 		m.tagMonitorMutex.Unlock()
 	}
 }
 
 // startTagMonitor inicia o monitoramento de um grupo de tags com a mesma taxa de scan
-func (m *PLCManager) startTagMonitor(rate int, tags []domain.PLCTag, ctx context.Context, plcConfig domain.PLC, conn *PLCConnection, lastValues *sync.Map) {
+func (m *PLCManager) startTagMonitor(rate int, plcID int, ctx context.Context, plcConfig domain.PLC, conn *PLCConnection, lastValues *sync.Map) {
 	ticker := time.NewTicker(time.Duration(rate) * time.Millisecond)
 	defer ticker.Stop()
 
-	log.Printf("PLC %d: Monitorando %d tags com taxa de %d ms",
-		plcConfig.ID, len(tags), rate)
+	log.Printf("PLC %d: Monitorando tags com taxa de %d ms", plcConfig.ID, rate)
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("PLC %d: Encerrando monitoramento de %d tags",
-				plcConfig.ID, len(tags))
+			log.Printf("PLC %d: Encerrando monitoramento de tags com taxa %d ms", plcConfig.ID, rate)
 			return
 
 		case <-ticker.C:
-			// Ler valor de cada tag no grupo
-			updatedValues := make([]domain.TagValue, 0, len(tags))
+			// Buscar tags atuais para este PLC e para esta taxa de scan
+			allTags, err := m.tagRepo.GetPLCTags(plcConfig.ID)
+			if err != nil {
+				log.Printf("Erro ao buscar tags para PLC %d: %v", plcConfig.ID, err)
+				continue
+			}
 
-			for _, tag := range tags {
+			// Filtrar por tags ativos com esta taxa de scan
+			currentTags := make([]domain.PLCTag, 0)
+			for _, tag := range allTags {
+				if tag.Active && tag.ScanRate == rate {
+					currentTags = append(currentTags, tag)
+				}
+			}
+
+			// Se não houver tags, pular esta execução
+			if len(currentTags) == 0 {
+				continue
+			}
+
+			// Ler valor de cada tag no grupo atual
+			updatedValues := make([]domain.TagValue, 0, len(currentTags))
+
+			for _, tag := range currentTags {
 				// Converter ByteOffset de float64 para int
 				byteOffset := int(tag.ByteOffset)
 
